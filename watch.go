@@ -18,6 +18,22 @@ import (
 // we've had a constant stream of modifications blocking us.
 const MaxLullWait = time.Second * 8
 
+type FakeEvent struct {
+	path string
+}
+
+func (f FakeEvent) Event() notify.Event {
+	return notify.Create
+}
+
+func (f FakeEvent) Path() string {
+	return f.path
+}
+
+func (f FakeEvent) Sys() interface{} {
+	return nil
+}
+
 // isUnder takes two absolute paths, and returns true if child is under parent.
 func isUnder(parent string, child string) bool {
 	parent = filepath.ToSlash(parent)
@@ -381,20 +397,22 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 // the returned path is absolute.
 //
 // Pattern syntax is as follows:
-//   *              any sequence of non-path-separators
-//   **             any sequence of characters, including path separators
-//   ?              any single non-path-separator character
-//   [class]        any single non-path-separator character against a class
-//                  of characters (see below)
-//   {alt1,...}     a sequence of characters if one of the comma-separated
-//                  alternatives matches
 //
-//  Any character with a special meaning can be escaped with a backslash (\).
+//   - any sequence of non-path-separators
+//     **             any sequence of characters, including path separators
+//     ?              any single non-path-separator character
+//     [class]        any single non-path-separator character against a class
+//     of characters (see below)
+//     {alt1,...}     a sequence of characters if one of the comma-separated
+//     alternatives matches
+//
+//     Any character with a special meaning can be escaped with a backslash (\).
 //
 // Character classes support the following:
-// 		[abc]		any single character within the set
-// 		[a-z]		any single character in the range
-// 		[^class] 	any single character which does not match the class
+//
+//	[abc]		any single character within the set
+//	[a-z]		any single character in the range
+//	[^class] 	any single character which does not match the class
 func Watch(
 	root string,
 	includes []string,
@@ -402,10 +420,44 @@ func Watch(
 	lullTime time.Duration,
 	ch chan *Mod,
 ) (*Watcher, error) {
+	fmt.Println("OK 1")
 	evtch := make(chan notify.EventInfo, 4096)
+
+	fmt.Println("root", root)
+	fmt.Println("includes", includes)
+
 	newincludes, paths := baseDirs(root, includes)
+
+	fmt.Println("paths", paths)
 	for _, p := range paths {
-		err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
+		// err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
+
+		fmt.Println("OK")
+
+		fsw, err := NewFSWatcher()
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Println("fsw", fsw)
+		fmt.Println("err", err)
+
+		cwd, _ := os.Getwd()
+
+		err = fsw.Add(cwd)
+		if err != nil {
+			return nil, err
+		}
+
+		go func() {
+			for ev := range fsw.Events {
+
+				evtch <- FakeEvent{
+					path: ev.Path,
+				}
+			}
+		}()
+
 		if err != nil {
 			notify.Stop(evtch)
 			return nil, fmt.Errorf("could not watch path '%s': %s", p, err)
