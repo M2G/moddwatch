@@ -36,6 +36,9 @@ static void fswatch_callback(
         return;
     }
 
+    for (unsigned int i = 0; i < event_num; i++) {
+        printf("EVENT[%u]: %s\n", i, events[i].path);
+    }
     fflush(stdout);
 
     strncpy(
