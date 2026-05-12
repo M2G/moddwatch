@@ -11,6 +11,8 @@ fswatch_bridge.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libfswatch/c/cevent.h>
+#include <sys/stat.h>
 
 #define EVENT_QUEUE_SIZE 1024
 #define MAX_WATCH_PATHS 128
@@ -36,6 +38,9 @@ typedef struct {
 
     int monitor_started;
 
+    char seen_paths[4096][4096];
+    int seen_path_count;
+
 } moddwatch_handle;
 
 static void fswatch_callback(
@@ -49,6 +54,25 @@ static void fswatch_callback(
     pthread_mutex_lock(&h->mutex);
 
     for (unsigned int i = 0; i < event_num; i++) {
+
+        printf(
+            "EVENT %s flags_num=%u\n",
+            events[i].path,
+            events[i].flags_num
+        );
+
+        for (
+            unsigned int k = 0;
+            k < events[i].flags_num;
+            k++
+        ) {
+
+            printf(
+                "FLAG[%u]=%d\n",
+                k,
+                events[i].flags[k]
+            );
+        }
 
         int allowed = 0;
 
@@ -104,7 +128,64 @@ static void fswatch_callback(
             ) - 1
         ] = '\0';
 
-        h->queue[h->queue_tail].flags = 1;
+        uint32_t flags = 1;
+
+        int saw_updated = 0;
+        int saw_created = 0;
+
+        struct stat st;
+
+        int exists =
+            stat(events[i].path, &st) == 0;
+
+        for (
+            unsigned int k = 0;
+            k < events[i].flags_num;
+            k++
+        ) {
+
+            enum fsw_event_flag flag =
+                events[i].flags[k];
+
+            if (flag == Updated) {
+                saw_updated = 1;
+            }
+
+            if (flag == Created) {
+                saw_created = 1;
+            }
+
+            if (flag == Removed) {
+                flags = 3;
+            }
+
+            if (flag == Renamed) {
+                flags = 4;
+            }
+        }
+
+        if (flags != 3 && flags != 4) {
+
+            if (
+                exists
+                &&
+                (saw_updated || saw_created)
+            ) {
+                flags = 2;
+            }
+            else if (saw_created) {
+                flags = 1;
+            }
+        }
+
+        printf(
+            "FINAL FLAGS %u FOR %s\n",
+            flags,
+            events[i].path
+        );
+
+        h->queue[h->queue_tail].flags =
+            flags;
 
         h->queue_tail = next_tail;
     }
@@ -135,6 +216,8 @@ MODDWATCH_HANDLE moddwatch_create() {
         &h->mutex,
         NULL
     );
+
+    h->seen_path_count = 0;
 
     h->monitor =
         fsw_init_session(

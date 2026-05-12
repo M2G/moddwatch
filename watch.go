@@ -19,10 +19,27 @@ import (
 const MaxLullWait = time.Second * 8
 
 type FakeEvent struct {
-	path string
+	path  string
+	flags uint32
 }
 
 func (f FakeEvent) Event() notify.Event {
+
+	switch f.flags {
+
+	case 1:
+		return notify.Create
+
+	case 2:
+		return notify.Write
+
+	case 3:
+		return notify.Remove
+
+	case 4:
+		return notify.Rename
+	}
+
 	return notify.Create
 }
 
@@ -426,6 +443,7 @@ func Watch(
 	for _, p := range paths {
 		// err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
 		fsw, err := NewFSWatcher()
+		fmt.Println("USING FSWATCH BACKEND")
 		if err != nil {
 			return nil, err
 		}
