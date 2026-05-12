@@ -422,31 +422,19 @@ func Watch(
 ) (*Watcher, error) {
 	fmt.Println("OK 1")
 	evtch := make(chan notify.EventInfo, 4096)
-
-	fmt.Println("root", root)
-	fmt.Println("includes", includes)
-
 	newincludes, paths := baseDirs(root, includes)
-
-	fmt.Println("paths", paths)
 	for _, p := range paths {
 		// err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
-
-		fmt.Println("OK")
-
 		fsw, err := NewFSWatcher()
 		if err != nil {
 			return nil, err
 		}
 
-		fmt.Println("fsw", fsw)
-		fmt.Println("err", err)
-
-		cwd, _ := os.Getwd()
-
-		err = fsw.Add(cwd)
-		if err != nil {
-			return nil, err
+		for _, p := range paths {
+			err = fsw.Add(p)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		go func() {

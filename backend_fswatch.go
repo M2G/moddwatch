@@ -20,9 +20,8 @@ type FSEvent struct {
 }
 
 type FSWatcher struct {
-	handle C.int
+	handle C.MODDWATCH_HANDLE
 	Events chan FSEvent
-	fsw    *FSWatcher
 }
 
 func (w *FSWatcher) loop() {
@@ -43,10 +42,13 @@ func (w *FSWatcher) loop() {
 }
 
 func NewFSWatcher() (*FSWatcher, error) {
+
 	h := C.moddwatch_create()
 
-	if h < 0 {
-		return nil, fmt.Errorf("failed to create watcher")
+	if h == nil {
+		return nil, fmt.Errorf(
+			"failed to create fswatch monitor",
+		)
 	}
 
 	w := &FSWatcher{
@@ -60,20 +62,22 @@ func NewFSWatcher() (*FSWatcher, error) {
 }
 
 func (w *FSWatcher) Add(path string) error {
-	fmt.Println("ADD PATH:", path)
 
 	cpath := C.CString(path)
-	defer C.free(unsafe.Pointer(cpath))
+
+	defer C.free(
+		unsafe.Pointer(cpath),
+	)
 
 	ret := C.moddwatch_add(
 		w.handle,
 		cpath,
 	)
 
-	fmt.Println("ADD RET:", ret)
-
 	if ret != 0 {
-		return fmt.Errorf("failed to add path")
+		return fmt.Errorf(
+			"failed to add watch path",
+		)
 	}
 
 	return nil
@@ -98,5 +102,10 @@ func (w *FSWatcher) Next() (*FSEvent, error) {
 }
 
 func (w *FSWatcher) Close() {
-	C.moddwatch_destroy(w.handle)
+
+	C.moddwatch_destroy(
+		w.handle,
+	)
+
+	close(w.Events)
 }

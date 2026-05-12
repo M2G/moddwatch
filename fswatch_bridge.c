@@ -1,126 +1,289 @@
+/*
+fswatch_bridge.c
+*/
+
 #include "fswatch_bridge.h"
 
 #include <libfswatch/c/libfswatch.h>
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-static FSW_HANDLE monitor;
+#define EVENT_QUEUE_SIZE 1024
+#define MAX_WATCH_PATHS 128
 
-static char last_path[4096];
-static uint32_t last_flags = 0;
-static int has_event = 0;
+typedef struct {
+    char path[4096];
+    uint32_t flags;
+} queued_event;
 
+typedef struct {
 
-void* monitor_thread(void* arg) {
-    printf("THREAD STARTED\n");
-    fflush(stdout);
+    FSW_HANDLE monitor;
 
-    int ret = fsw_start_monitor((FSW_HANDLE)arg);
+    queued_event queue[EVENT_QUEUE_SIZE];
 
-    printf("MONITOR RET: %d\n", ret);
-    printf("LAST ERROR: %s\n", fsw_last_error());
-    fflush(stdout);
+    int queue_head;
+    int queue_tail;
 
-    return NULL;
-}
+    pthread_mutex_t mutex;
+
+    char watch_paths[MAX_WATCH_PATHS][4096];
+    int watch_path_count;
+
+    int monitor_started;
+
+} moddwatch_handle;
 
 static void fswatch_callback(
     const fsw_cevent *events,
     unsigned int event_num,
     void *data
 ) {
-    if (event_num == 0) {
-        return;
-    }
+    moddwatch_handle* h =
+        (moddwatch_handle*)data;
+
+    pthread_mutex_lock(&h->mutex);
 
     for (unsigned int i = 0; i < event_num; i++) {
-        printf("EVENT[%u]: %s\n", i, events[i].path);
+
+        int allowed = 0;
+
+        for (int j = 0; j < h->watch_path_count; j++) {
+
+            size_t len =
+                strlen(h->watch_paths[j]);
+
+            if (
+                strcmp(
+                    events[i].path,
+                    h->watch_paths[j]
+                ) == 0
+                ||
+                (
+                    strncmp(
+                        events[i].path,
+                        h->watch_paths[j],
+                        len
+                    ) == 0
+                    &&
+                    events[i].path[len] == '/'
+                )
+            ) {
+                allowed = 1;
+                break;
+            }
+        }
+
+        if (!allowed) {
+            continue;
+        }
+
+        int next_tail =
+            (h->queue_tail + 1)
+            % EVENT_QUEUE_SIZE;
+
+        if (next_tail == h->queue_head) {
+            continue;
+        }
+
+        strncpy(
+            h->queue[h->queue_tail].path,
+            events[i].path,
+            sizeof(
+                h->queue[h->queue_tail].path
+            ) - 1
+        );
+
+        h->queue[h->queue_tail].path[
+            sizeof(
+                h->queue[h->queue_tail].path
+            ) - 1
+        ] = '\0';
+
+        h->queue[h->queue_tail].flags = 1;
+
+        h->queue_tail = next_tail;
     }
-    fflush(stdout);
 
-    strncpy(
-        last_path,
-        events[0].path,
-        sizeof(last_path) - 1
-    );
-
-    last_flags = 1;
-
-    has_event = 1;
+    pthread_mutex_unlock(&h->mutex);
 }
 
-int moddwatch_create() {
-  monitor = fsw_init_session(
-      kqueue_monitor_type
-  );
+static void* monitor_thread(void* arg) {
 
-  printf("MONITOR CREATED\n");
+    moddwatch_handle* h =
+        (moddwatch_handle*)arg;
 
-    if (!monitor) {
-        return -1;
+    fsw_start_monitor(h->monitor);
+
+    return NULL;
+}
+
+MODDWATCH_HANDLE moddwatch_create() {
+
+    moddwatch_handle* h =
+        calloc(1, sizeof(moddwatch_handle));
+
+    if (!h) {
+        return NULL;
     }
 
-fsw_set_latency(monitor, 0.1);
+    pthread_mutex_init(
+        &h->mutex,
+        NULL
+    );
 
-fsw_set_callback(
-    monitor,
-    fswatch_callback,
-    NULL
-);
+    h->monitor =
+        fsw_init_session(
+            fsevents_monitor_type
+        );
 
-    return 1;
+    if (!h->monitor) {
+        free(h);
+        return NULL;
+    }
+
+    fsw_set_latency(
+        h->monitor,
+        0.1
+    );
+
+    fsw_set_callback(
+        h->monitor,
+        fswatch_callback,
+        h
+    );
+
+    return h;
 }
 
 int moddwatch_add(
-    int handle,
+    MODDWATCH_HANDLE handle,
     const char* path
 ) {
-    printf("WATCH PATH: %s\n", path);
-    fflush(stdout);
+    moddwatch_handle* h =
+        (moddwatch_handle*)handle;
+
+    if (!h) {
+        return -1;
+    }
+
+    if (
+        h->watch_path_count
+        >= MAX_WATCH_PATHS
+    ) {
+        return -1;
+    }
+
+    strncpy(
+        h->watch_paths[h->watch_path_count],
+        path,
+        sizeof(
+            h->watch_paths[h->watch_path_count]
+        ) - 1
+    );
+
+    h->watch_paths[h->watch_path_count][
+        sizeof(
+            h->watch_paths[h->watch_path_count]
+        ) - 1
+    ] = '\0';
+
+    h->watch_path_count++;
 
     fsw_add_path(
-        monitor,
+        h->monitor,
         path
     );
 
-    pthread_t tid;
+    if (!h->monitor_started) {
 
-  int tret = pthread_create(
-      &tid,
-      NULL,
-      monitor_thread,
-      monitor
-  );
+        pthread_t tid;
 
-  printf("THREAD RET: %d\n", tret);
-  fflush(stdout);
+        int tret = pthread_create(
+            &tid,
+            NULL,
+            monitor_thread,
+            h
+        );
+
+        if (tret != 0) {
+            return -1;
+        }
+
+        pthread_detach(tid);
+
+        h->monitor_started = 1;
+    }
 
     return 0;
 }
 
 int moddwatch_next(
-    int handle,
+    MODDWATCH_HANDLE handle,
     moddwatch_event* ev
 ) {
-    if (!has_event) {
+    moddwatch_handle* h =
+        (moddwatch_handle*)handle;
+
+    if (!h) {
+        return 0;
+    }
+
+    pthread_mutex_lock(&h->mutex);
+
+    if (h->queue_head == h->queue_tail) {
+        pthread_mutex_unlock(&h->mutex);
         return 0;
     }
 
     strncpy(
         ev->path,
-        last_path,
+        h->queue[h->queue_head].path,
         sizeof(ev->path) - 1
     );
 
-    ev->flags = last_flags;
+    ev->path[
+        sizeof(ev->path) - 1
+    ] = '\0';
 
-    has_event = 0;
+    ev->flags =
+        h->queue[h->queue_head].flags;
+
+    h->queue_head =
+        (h->queue_head + 1)
+        % EVENT_QUEUE_SIZE;
+
+    pthread_mutex_unlock(&h->mutex);
 
     return 1;
 }
 
-void moddwatch_destroy(int handle) {
+void moddwatch_destroy(
+    MODDWATCH_HANDLE handle
+) {
+    moddwatch_handle* h =
+        (moddwatch_handle*)handle;
+
+    if (!h) {
+        return;
+    }
+
+    if (h->monitor) {
+
+        fsw_stop_monitor(h->monitor);
+
+        fsw_destroy_session(
+            h->monitor
+        );
+    }
+
+    pthread_mutex_destroy(
+        &h->mutex
+    );
+
+    free(h);
 }

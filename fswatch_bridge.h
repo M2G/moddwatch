@@ -1,5 +1,4 @@
-#ifndef MODDWATCH_FSWATCH_BRIDGE_H
-#define MODDWATCH_FSWATCH_BRIDGE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -8,18 +7,20 @@ typedef struct {
     uint32_t flags;
 } moddwatch_event;
 
-int moddwatch_create();
+typedef void* MODDWATCH_HANDLE;
+
+MODDWATCH_HANDLE moddwatch_create();
 
 int moddwatch_add(
-    int handle,
+    MODDWATCH_HANDLE handle,
     const char* path
 );
 
 int moddwatch_next(
-    int handle,
+    MODDWATCH_HANDLE handle,
     moddwatch_event* ev
 );
 
-void moddwatch_destroy(int handle);
-
-#endif
+void moddwatch_destroy(
+    MODDWATCH_HANDLE handle
+);
