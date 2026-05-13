@@ -2,11 +2,6 @@
 
 #include <stdint.h>
 
-typedef struct {
-    char path[4096];
-    uint32_t flags;
-} moddwatch_event;
-
 typedef void* MODDWATCH_HANDLE;
 
 MODDWATCH_HANDLE moddwatch_create();
@@ -16,9 +11,14 @@ int moddwatch_add(
     const char* path
 );
 
+int moddwatch_start(
+    MODDWATCH_HANDLE handle
+);
+
 int moddwatch_next(
     MODDWATCH_HANDLE handle,
-    moddwatch_event* ev
+    char* path,
+    uint32_t* flags
 );
 
 void moddwatch_destroy(

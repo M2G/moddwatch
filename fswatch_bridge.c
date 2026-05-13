@@ -1,372 +1,246 @@
-/*
-fswatch_bridge.c
-*/
-
-#include "fswatch_bridge.h"
-
-#include <libfswatch/c/libfswatch.h>
-
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include <pthread.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <libfswatch/c/cevent.h>
+#include <time.h>
 #include <sys/stat.h>
+#include <libfswatch/c/libfswatch.h>
 
-#define EVENT_QUEUE_SIZE 1024
-#define MAX_WATCH_PATHS 128
+#define EVENT_QUEUE_SIZE  4096 // queue size
+#define MAX_WATCH_PATHS   1024 // number of (map-)paths limited to 1024
+#define MAX_KNOWN_FILES   65536 // max locked memory
+
+static pthread_once_t fsw_init_once = PTHREAD_ONCE_INIT;
+static void do_fsw_init(void) { fsw_init_library(); }
 
 typedef struct {
-    char path[4096];
+    char     path[4096];
     uint32_t flags;
 } queued_event;
 
 typedef struct {
-
     FSW_HANDLE monitor;
 
     queued_event queue[EVENT_QUEUE_SIZE];
-
-    int queue_head;
-    int queue_tail;
+    int          queue_head;
+    int          queue_tail;
 
     pthread_mutex_t mutex;
 
+    // Paths we were asked to watch (resolved, no symlinks)
     char watch_paths[MAX_WATCH_PATHS][4096];
-    int watch_path_count;
+    int  watch_path_count;
 
-    int monitor_started;
-
-    char seen_paths[4096][4096];
-    int seen_path_count;
-
+    /* NOTE :
+     * Set of file paths we have already emitted at least one event for.
+     * Used to distinguish a true creation from O_CREATE on an existing
+     * file: if we've seen a path before, Created to Updated.
+     *
+     * Simple open-addressing hash table keyed on path string.
+     */
+    char known_files[MAX_KNOWN_FILES][4096];
+    int  known_used[MAX_KNOWN_FILES];
 } moddwatch_handle;
+
+// djb2 hash @see: https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
+static unsigned int path_hash(const char *s) {
+    unsigned int h = 5381;
+    while (*s) h = ((h << 5) + h) ^ (unsigned char)*s++;
+    return h;
+}
+
+static int known_contains(moddwatch_handle *h, const char *path) {
+    unsigned int idx = path_hash(path) % MAX_KNOWN_FILES;
+    for (int i = 0; i < MAX_KNOWN_FILES; i++) {
+        unsigned int slot = (idx + i) % MAX_KNOWN_FILES;
+        if (!h->known_used[slot]) return 0;
+        if (strcmp(h->known_files[slot], path) == 0) return 1;
+    }
+    return 0;
+}
+
+static void known_insert(moddwatch_handle *h, const char *path) {
+    unsigned int idx = path_hash(path) % MAX_KNOWN_FILES;
+    for (int i = 0; i < MAX_KNOWN_FILES; i++) {
+        unsigned int slot = (idx + i) % MAX_KNOWN_FILES;
+        if (!h->known_used[slot] || strcmp(h->known_files[slot], path) == 0) {
+            strncpy(h->known_files[slot], path, 4095);
+            h->known_files[slot][4095] = '\0';
+            h->known_used[slot] = 1;
+            return;
+        }
+    }
+}
+
+static int is_directory(const char *path) {
+    struct stat st;
+    return (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+static int is_allowed(moddwatch_handle *h, const char *path) {
+    for (int j = 0; j < h->watch_path_count; j++) {
+        size_t len = strlen(h->watch_paths[j]);
+        if (strcmp(path, h->watch_paths[j]) == 0 ||
+            (strncmp(path, h->watch_paths[j], len) == 0 &&
+             (path[len] == '/' || path[len] == '\0'))) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static void fswatch_callback(
     const fsw_cevent *events,
-    unsigned int event_num,
-    void *data
+    unsigned int      event_num,
+    void             *data
 ) {
-    moddwatch_handle* h =
-        (moddwatch_handle*)data;
+    moddwatch_handle *h = (moddwatch_handle *)data;
 
     pthread_mutex_lock(&h->mutex);
 
     for (unsigned int i = 0; i < event_num; i++) {
+        if (is_directory(events[i].path)) continue;
+        if (!is_allowed(h, events[i].path))  continue;
 
-        printf(
-            "EVENT %s flags_num=%u\n",
-            events[i].path,
-            events[i].flags_num
-        );
+        int next_tail = (h->queue_tail + 1) % EVENT_QUEUE_SIZE;
+        if (next_tail == h->queue_head) continue;
 
-        for (
-            unsigned int k = 0;
-            k < events[i].flags_num;
-            k++
-        ) {
-
-            printf(
-                "FLAG[%u]=%d\n",
-                k,
-                events[i].flags[k]
-            );
+        int has_created = 0, has_updated = 0, has_removed = 0, has_renamed = 0;
+        for (unsigned int k = 0; k < events[i].flags_num; k++) {
+            enum fsw_event_flag f = events[i].flags[k];
+            if (f == Created) has_created = 1;
+            if (f == Updated) has_updated = 1;
+            if (f == Removed) has_removed = 1;
+            if (f == Renamed) has_renamed = 1;
         }
 
-        int allowed = 0;
-
-        for (int j = 0; j < h->watch_path_count; j++) {
-
-            size_t len =
-                strlen(h->watch_paths[j]);
-
-            if (
-                strcmp(
-                    events[i].path,
-                    h->watch_paths[j]
-                ) == 0
-                ||
-                (
-                    strncmp(
-                        events[i].path,
-                        h->watch_paths[j],
-                        len
-                    ) == 0
-                    &&
-                    events[i].path[len] == '/'
-                )
-            ) {
-                allowed = 1;
-                break;
+        uint32_t flags = 0;
+        if (has_removed) {
+            flags = 3;
+            // remove from known set on deletion
+        } else if (has_created) {
+            if (known_contains(h, events[i].path)) {
+                // File was already known - O_CREATE on existing file
+                flags = 2; // Updated / Write
+            } else {
+                flags = 1; // genuinely new
+                known_insert(h, events[i].path);
             }
+        } else if (has_updated) {
+            flags = 2;
+            known_insert(h, events[i].path);
+        } else if (has_renamed) {
+            flags = 4;
         }
 
-        if (!allowed) {
-            continue;
-        }
-
-        int next_tail =
-            (h->queue_tail + 1)
-            % EVENT_QUEUE_SIZE;
-
-        if (next_tail == h->queue_head) {
-            continue;
-        }
+        if (flags == 0) continue;
 
         strncpy(
             h->queue[h->queue_tail].path,
             events[i].path,
-            sizeof(
-                h->queue[h->queue_tail].path
-            ) - 1
+            sizeof(h->queue[h->queue_tail].path) - 1
         );
-
-        h->queue[h->queue_tail].path[
-            sizeof(
-                h->queue[h->queue_tail].path
-            ) - 1
-        ] = '\0';
-
-        uint32_t flags = 1;
-
-        int saw_updated = 0;
-        int saw_created = 0;
-
-        struct stat st;
-
-        int exists =
-            stat(events[i].path, &st) == 0;
-
-        for (
-            unsigned int k = 0;
-            k < events[i].flags_num;
-            k++
-        ) {
-
-            enum fsw_event_flag flag =
-                events[i].flags[k];
-
-            if (flag == Updated) {
-                saw_updated = 1;
-            }
-
-            if (flag == Created) {
-                saw_created = 1;
-            }
-
-            if (flag == Removed) {
-                flags = 3;
-            }
-
-            if (flag == Renamed) {
-                flags = 4;
-            }
-        }
-
-        if (flags != 3 && flags != 4) {
-
-            if (
-                exists
-                &&
-                (saw_updated || saw_created)
-            ) {
-                flags = 2;
-            }
-            else if (saw_created) {
-                flags = 1;
-            }
-        }
-
-        printf(
-            "FINAL FLAGS %u FOR %s\n",
-            flags,
-            events[i].path
-        );
-
-        h->queue[h->queue_tail].flags =
-            flags;
-
+        h->queue[h->queue_tail].path[sizeof(h->queue[h->queue_tail].path) - 1] = '\0';
+        h->queue[h->queue_tail].flags = flags;
         h->queue_tail = next_tail;
     }
 
     pthread_mutex_unlock(&h->mutex);
 }
 
-static void* monitor_thread(void* arg) {
+void *moddwatch_create(void) {
+    pthread_once(&fsw_init_once, do_fsw_init);
 
-    moddwatch_handle* h =
-        (moddwatch_handle*)arg;
+    moddwatch_handle *h = calloc(1, sizeof(moddwatch_handle));
+    if (!h) return NULL;
 
-    fsw_start_monitor(h->monitor);
+    h->monitor = fsw_init_session(system_default_monitor_type);
+    if (!h->monitor) { free(h); return NULL; }
 
-    return NULL;
-}
+    h->queue_head       = 0;
+    h->queue_tail       = 0;
+    h->watch_path_count = 0;
 
-MODDWATCH_HANDLE moddwatch_create() {
-
-    moddwatch_handle* h =
-        calloc(1, sizeof(moddwatch_handle));
-
-    if (!h) {
-        return NULL;
-    }
-
-    pthread_mutex_init(
-        &h->mutex,
-        NULL
-    );
-
-    h->seen_path_count = 0;
-
-    h->monitor =
-        fsw_init_session(
-            fsevents_monitor_type
-        );
-
-    if (!h->monitor) {
-        free(h);
-        return NULL;
-    }
-
-    fsw_set_latency(
-        h->monitor,
-        0.1
-    );
-
-    fsw_set_callback(
-        h->monitor,
-        fswatch_callback,
-        h
-    );
+    pthread_mutex_init(&h->mutex, NULL);
+    fsw_set_callback(h->monitor, fswatch_callback, h);
 
     return h;
 }
 
-int moddwatch_add(
-    MODDWATCH_HANDLE handle,
-    const char* path
-) {
-    moddwatch_handle* h =
-        (moddwatch_handle*)handle;
+int moddwatch_add(void *handle, const char *path) {
+    moddwatch_handle *h = (moddwatch_handle *)handle;
+    if (h->watch_path_count >= MAX_WATCH_PATHS) return -1;
 
-    if (!h) {
-        return -1;
-    }
-
-    if (
-        h->watch_path_count
-        >= MAX_WATCH_PATHS
-    ) {
-        return -1;
+    char resolved[4096];
+    if (realpath(path, resolved) == NULL) {
+        strncpy(resolved, path, sizeof(resolved) - 1);
+        resolved[sizeof(resolved) - 1] = '\0';
     }
 
     strncpy(
         h->watch_paths[h->watch_path_count],
-        path,
-        sizeof(
-            h->watch_paths[h->watch_path_count]
-        ) - 1
+        resolved,
+        sizeof(h->watch_paths[h->watch_path_count]) - 1
     );
-
-    h->watch_paths[h->watch_path_count][
-        sizeof(
-            h->watch_paths[h->watch_path_count]
-        ) - 1
-    ] = '\0';
-
+    h->watch_paths[h->watch_path_count][sizeof(h->watch_paths[h->watch_path_count]) - 1] = '\0';
     h->watch_path_count++;
 
-    fsw_add_path(
-        h->monitor,
-        path
-    );
-
-    if (!h->monitor_started) {
-
-        pthread_t tid;
-
-        int tret = pthread_create(
-            &tid,
-            NULL,
-            monitor_thread,
-            h
-        );
-
-        if (tret != 0) {
-            return -1;
-        }
-
-        pthread_detach(tid);
-
-        h->monitor_started = 1;
+    /* NOTE :
+     * Pre-populate known_files with files that already exist under this
+     * path, so that a subsequent O_CREATE on them is seen as Updated.
+     */
+    // We only pre-populate the exact path if it's a file
+    struct stat st;
+    if (stat(resolved, &st) == 0 && !S_ISDIR(st.st_mode)) {
+        known_insert(h, resolved);
     }
 
-    return 0;
+    return fsw_add_path(h->monitor, resolved);
 }
 
-int moddwatch_next(
-    MODDWATCH_HANDLE handle,
-    moddwatch_event* ev
-) {
-    moddwatch_handle* h =
-        (moddwatch_handle*)handle;
+static void *monitor_thread(void *arg) {
+    moddwatch_handle *h = (moddwatch_handle *)arg;
+    fsw_start_monitor(h->monitor);
+    return NULL;
+}
 
-    if (!h) {
-        return 0;
-    }
+int moddwatch_start(void *handle) {
+    moddwatch_handle *h = (moddwatch_handle *)handle;
+
+    pthread_t tid;
+    int ret = pthread_create(&tid, NULL, monitor_thread, h);
+    if (ret != 0) return ret;
+    pthread_detach(tid);
+
+    struct timespec ts = {0, 500000000}; // 500ms
+    nanosleep(&ts, NULL);
+
+    return FSW_OK;
+}
+
+int moddwatch_next(void *handle, char *path, uint32_t *flags) {
+    moddwatch_handle *h = (moddwatch_handle *)handle;
 
     pthread_mutex_lock(&h->mutex);
-
     if (h->queue_head == h->queue_tail) {
         pthread_mutex_unlock(&h->mutex);
         return 0;
     }
 
-    strncpy(
-        ev->path,
-        h->queue[h->queue_head].path,
-        sizeof(ev->path) - 1
-    );
-
-    ev->path[
-        sizeof(ev->path) - 1
-    ] = '\0';
-
-    ev->flags =
-        h->queue[h->queue_head].flags;
-
-    h->queue_head =
-        (h->queue_head + 1)
-        % EVENT_QUEUE_SIZE;
+    strncpy(path, h->queue[h->queue_head].path, 4095);
+    path[4095] = '\0';
+    *flags = h->queue[h->queue_head].flags;
+    h->queue_head = (h->queue_head + 1) % EVENT_QUEUE_SIZE;
 
     pthread_mutex_unlock(&h->mutex);
-
     return 1;
 }
 
-void moddwatch_destroy(
-    MODDWATCH_HANDLE handle
-) {
-    moddwatch_handle* h =
-        (moddwatch_handle*)handle;
-
-    if (!h) {
-        return;
-    }
-
-    if (h->monitor) {
-
-        fsw_stop_monitor(h->monitor);
-
-        fsw_destroy_session(
-            h->monitor
-        );
-    }
-
-    pthread_mutex_destroy(
-        &h->mutex
-    );
-
+void moddwatch_destroy(void *handle) {
+    moddwatch_handle *h = (moddwatch_handle *)handle;
+    if (!h) return;
+    fsw_destroy_session(h->monitor);
+    pthread_mutex_destroy(&h->mutex);
     free(h);
 }

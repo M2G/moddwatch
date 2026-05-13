@@ -18,39 +18,6 @@ import (
 // we've had a constant stream of modifications blocking us.
 const MaxLullWait = time.Second * 8
 
-type FakeEvent struct {
-	path  string
-	flags uint32
-}
-
-func (f FakeEvent) Event() notify.Event {
-
-	switch f.flags {
-
-	case 1:
-		return notify.Create
-
-	case 2:
-		return notify.Write
-
-	case 3:
-		return notify.Remove
-
-	case 4:
-		return notify.Rename
-	}
-
-	return notify.Create
-}
-
-func (f FakeEvent) Path() string {
-	return f.path
-}
-
-func (f FakeEvent) Sys() interface{} {
-	return nil
-}
-
 // isUnder takes two absolute paths, and returns true if child is under parent.
 func isUnder(parent string, child string) bool {
 	parent = filepath.ToSlash(parent)
@@ -251,7 +218,6 @@ func mkmod(exists existenceChecker, added fset, removed fset, changed fset, rena
 	ret.Changed = _keys(changed)
 	ret.Deleted = _keys(removed)
 	return ret
-
 }
 
 // This function batches events up, and emits just a list of paths for files
@@ -312,6 +278,7 @@ func batch(lullTime time.Duration, maxTime time.Duration, exists existenceChecke
 type Watcher struct {
 	evtch  chan notify.EventInfo
 	modch  chan *Mod
+	fsw    *FSWatcher // non-nil when using the fswatch backend
 	closed bool
 
 	sync.Mutex
@@ -325,13 +292,20 @@ func (w *Watcher) send(m *Mod) {
 	}
 }
 
-// Stop watching, and close the channel passed to watch. This function can
+// Stop watching, and close the channel passed to Watch. This function can
 // safely be called concurrently.
 func (w *Watcher) Stop() {
 	w.Lock()
 	defer w.Unlock()
 	if !w.closed {
-		notify.Stop(w.evtch)
+		if w.fsw != nil {
+			// fswatch backend: Stop() destroys the session and closes
+			// fsw.Events, which in turn drains into evtch and lets
+			// batch() return nil via the closed channel path.
+			w.fsw.Stop()
+		} else {
+			notify.Stop(w.evtch)
+		}
 		close(w.modch)
 		w.closed = true
 	}
@@ -383,7 +357,7 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 					newincludes[i] = bdir
 				}
 			} else {
-				// Case 2: The file exists and is nota symlink, so we leave bdir
+				// Case 2: The file exists and is not a symlink, so we leave bdir
 				// unmodified.
 				bdir = enclosingDir(bdir)
 				if bdir == "" {
@@ -437,39 +411,43 @@ func Watch(
 	lullTime time.Duration,
 	ch chan *Mod,
 ) (*Watcher, error) {
-	fmt.Println("OK 1")
 	evtch := make(chan notify.EventInfo, 4096)
 	newincludes, paths := baseDirs(root, includes)
-	for _, p := range paths {
-		// err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
-		fsw, err := NewFSWatcher()
-		fmt.Println("USING FSWATCH BACKEND")
-		if err != nil {
-			return nil, err
-		}
 
+	w := &Watcher{evtch: evtch, modch: ch}
+
+	// Try the fswatch backend first. If libfswatch is not available
+	// NewFSWatcher() will return an error and we fall back to notify.
+	fsw, err := NewFSWatcher()
+	if err == nil {
+		// fswatch backend: register all paths, then start.
 		for _, p := range paths {
-			err = fsw.Add(p)
-			if err != nil {
-				return nil, err
+			if err := fsw.Add(p); err != nil {
+				fsw.Stop()
+				return nil, fmt.Errorf("could not watch path %q: %w", p, err)
 			}
 		}
+		fsw.Start()
+		w.fsw = fsw
 
+		// Bridge fsw.Events → evtch so batch() is unaware of the backend.
 		go func() {
 			for ev := range fsw.Events {
-
-				evtch <- FakeEvent{
-					path: ev.Path,
-				}
+				evtch <- ev
 			}
+			// fsw.Events closed (Stop called): signal batch() to exit.
+			close(evtch)
 		}()
-
-		if err != nil {
-			notify.Stop(evtch)
-			return nil, fmt.Errorf("could not watch path '%s': %s", p, err)
+	} else {
+		// notify / inotify fallback (original behaviour).
+		for _, p := range paths {
+			if err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All); err != nil {
+				notify.Stop(evtch)
+				return nil, fmt.Errorf("could not watch path %q: %w", p, err)
+			}
 		}
 	}
-	w := &Watcher{evtch: evtch, modch: ch}
+
 	go func() {
 		for {
 			b := batch(lullTime, MaxLullWait, statExistenceChecker{}, evtch)
