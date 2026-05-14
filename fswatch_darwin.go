@@ -1,3 +1,5 @@
+//go:build darwin
+
 package moddwatch
 
 /*
@@ -51,12 +53,7 @@ func (w *FSWatcher) Add(path string) error {
 	return nil
 }
 
-// NOTE :
-// Start launches the monitor in a POSIX thread (via C) and waits until it is
-// ready, then starts the polling goroutine. Blocks ~300ms for kqueue init.
 func (w *FSWatcher) Start() {
-	// moddwatch_start spawns a pthread internally and sleeps 300ms before
-	// returning - so when this call returns the monitor is live.
 	C.moddwatch_start(w.handle)
 
 	go func() {

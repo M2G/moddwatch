@@ -154,8 +154,12 @@ void *moddwatch_create(void) {
 
     moddwatch_handle *h = calloc(1, sizeof(moddwatch_handle));
     if (!h) return NULL;
-
-    h->monitor = fsw_init_session(system_default_monitor_type);
+    // switch
+    #ifdef __linux__
+        h->monitor = fsw_init_session(poll_monitor_type);
+    #else
+        h->monitor = fsw_init_session(system_default_monitor_type);
+    #endif
     if (!h->monitor) { free(h); return NULL; }
 
     h->queue_head       = 0;
@@ -164,6 +168,8 @@ void *moddwatch_create(void) {
 
     pthread_mutex_init(&h->mutex, NULL);
     fsw_set_callback(h->monitor, fswatch_callback, h);
+    fsw_set_recursive(h->monitor, true);
+    fsw_set_latency(h->monitor, 0.5);
 
     return h;
 }
