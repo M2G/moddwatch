@@ -156,7 +156,7 @@ void *moddwatch_create(void) {
     if (!h) return NULL;
     // switch
     #ifdef __linux__
-        h->monitor = fsw_init_session(poll_monitor_type);
+        h->monitor = fsw_init_session(inotify_monitor_type);
     #else
         h->monitor = fsw_init_session(system_default_monitor_type);
     #endif
