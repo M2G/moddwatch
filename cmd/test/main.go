@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/M2G/moddwatch"
+	"github.com/cortesi/moddwatch"
 )
 
 func main() {
