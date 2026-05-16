@@ -13,22 +13,20 @@ import (
 	"fmt"
 	"time"
 	"unsafe"
-
-	"github.com/rjeczalik/notify"
 )
 
 type fswEvent struct {
-	event notify.Event
+	event Event
 	path  string
 }
 
-func (e fswEvent) Event() notify.Event { return e.event }
-func (e fswEvent) Path() string        { return e.path }
-func (e fswEvent) Sys() interface{}    { return nil }
+func (e fswEvent) Event() Event     { return e.event }
+func (e fswEvent) Path() string     { return e.path }
+func (e fswEvent) Sys() interface{} { return nil }
 
 type FSWatcher struct {
 	handle C.MODDWATCH_HANDLE
-	Events chan notify.EventInfo
+	Events chan EventInfo
 	done   chan struct{}
 }
 
@@ -39,7 +37,7 @@ func NewFSWatcher() (*FSWatcher, error) {
 	}
 	return &FSWatcher{
 		handle: h,
-		Events: make(chan notify.EventInfo, 4096),
+		Events: make(chan EventInfo, 4096),
 		done:   make(chan struct{}),
 	}, nil
 }
@@ -71,16 +69,16 @@ func (w *FSWatcher) Start() {
 
 			if ret := C.moddwatch_next(w.handle, buf, &flags); ret != 0 {
 				p := C.GoString(buf)
-				var ev notify.Event
+				var ev Event
 				switch uint32(flags) {
 				case 1:
-					ev = notify.Create
+					ev = Create
 				case 2:
-					ev = notify.Write
+					ev = Write
 				case 3:
-					ev = notify.Remove
+					ev = Remove
 				case 4:
-					ev = notify.Rename
+					ev = Rename
 				default:
 					continue
 				}
