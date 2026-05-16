@@ -6,5 +6,3 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/google/go-cmp v0.7.0
 )
-
-require golang.org/x/sys v0.33.0 // indirect

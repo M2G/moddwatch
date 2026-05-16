@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cortesi/moddwatch/filter"
+	"github.com/M2G/moddwatch/filter"
 )
 
 // MaxLullWait is the maximum time to wait for a lull. This only kicks in if
