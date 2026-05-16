@@ -27,6 +27,7 @@ typedef struct {
     int          queue_tail;
 
     pthread_mutex_t mutex;
+    pthread_t monitor_tid;
 
     // Paths we were asked to watch (resolved, no symlinks)
     char watch_paths[MAX_WATCH_PATHS][4096];
@@ -214,10 +215,8 @@ static void *monitor_thread(void *arg) {
 int moddwatch_start(void *handle) {
     moddwatch_handle *h = (moddwatch_handle *)handle;
 
-    pthread_t tid;
-    int ret = pthread_create(&tid, NULL, monitor_thread, h);
-    if (ret != 0) return ret;
-    pthread_detach(tid);
+   int ret = pthread_create(&h->monitor_tid, NULL, monitor_thread, h);
+   if (ret != 0) return ret;
 
     struct timespec ts = {0, 500000000}; // 500ms
     nanosleep(&ts, NULL);
@@ -246,6 +245,8 @@ int moddwatch_next(void *handle, char *path, uint32_t *flags) {
 void moddwatch_destroy(void *handle) {
     moddwatch_handle *h = (moddwatch_handle *)handle;
     if (!h) return;
+    fsw_stop_monitor(h->monitor);
+    pthread_join(h->monitor_tid, NULL);
     fsw_destroy_session(h->monitor);
     pthread_mutex_destroy(&h->mutex);
     free(h);
