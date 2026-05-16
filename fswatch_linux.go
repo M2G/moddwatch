@@ -4,7 +4,7 @@ package moddwatch
 
 /*
 #cgo CFLAGS: -I/usr/local/include
-#cgo LDFLAGS: -L/usr/local/lib -lfswatch -lstdc++ -lintl
+#cgo LDFLAGS: -L/usr/local/lib -lfswatch -lstdc++
 #include "fswatch_bridge.h"
 #include <stdlib.h>
 */
