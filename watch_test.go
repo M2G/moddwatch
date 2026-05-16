@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/rjeczalik/notify"
 )
 
 var alwaysEqual = cmp.Comparer(func(_, _ interface{}) bool { return true })
@@ -73,7 +72,7 @@ func WithTempDir(t *testing.T) func() {
 }
 
 type TEventInfo struct {
-	event notify.Event
+	event Event
 	path  string
 }
 
@@ -81,7 +80,7 @@ func (te TEventInfo) Path() string {
 	return te.path
 }
 
-func (te TEventInfo) Event() notify.Event {
+func (te TEventInfo) Event() Event {
 	return te.event
 }
 
@@ -113,54 +112,54 @@ var batchTests = []struct {
 }{
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
-			TEventInfo{notify.Create, "bar"},
+			TEventInfo{Create, "foo"},
+			TEventInfo{Create, "bar"},
 		},
 		exists("bar", "foo"),
 		Mod{Added: []string{"bar", "foo"}},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Rename, "foo"},
-			TEventInfo{notify.Rename, "bar"},
+			TEventInfo{Rename, "foo"},
+			TEventInfo{Rename, "bar"},
 		},
 		exists("foo"),
 		Mod{Added: []string{"foo"}, Deleted: []string{"bar"}},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Write, "foo"},
+			TEventInfo{Write, "foo"},
 		},
 		exists("foo"),
 		Mod{Changed: []string{"foo"}},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Write, "foo"},
-			TEventInfo{notify.Remove, "foo"},
+			TEventInfo{Write, "foo"},
+			TEventInfo{Remove, "foo"},
 		},
 		exists(),
 		Mod{Deleted: []string{"foo"}},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Remove, "foo"},
+			TEventInfo{Remove, "foo"},
 		},
 		exists("foo"),
 		Mod{},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
-			TEventInfo{notify.Create, "bar"},
-			TEventInfo{notify.Remove, "bar"},
+			TEventInfo{Create, "foo"},
+			TEventInfo{Create, "bar"},
+			TEventInfo{Remove, "bar"},
 		},
 		exists("bar", "foo"),
 		Mod{Added: []string{"bar", "foo"}},
 	},
 	{
 		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
+			TEventInfo{Create, "foo"},
 		},
 		exists(),
 		Mod{},
@@ -169,7 +168,7 @@ var batchTests = []struct {
 
 func TestBatch(t *testing.T) {
 	for i, tst := range batchTests {
-		input := make(chan notify.EventInfo, len(tst.events))
+		input := make(chan EventInfo, len(tst.events))
 		for _, e := range tst.events {
 			input <- e
 		}
