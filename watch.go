@@ -10,131 +10,96 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cortesi/moddwatch/filter"
+	"github.com/M2G/moddwatch/filter"
 )
 
 // MaxLullWait is the maximum time to wait for a lull. This only kicks in if
 // we've had a constant stream of modifications blocking us.
 const MaxLullWait = time.Second * 8
 
-// isUnder takes two absolute paths, and returns true if child is under parent.
-func isUnder(parent string, child string) bool {
-	parent = filepath.ToSlash(parent)
-	child = filepath.ToSlash(child)
-	off := strings.Index(child, parent)
-	if off == 0 && (len(child) == len(parent) || child[len(parent)] == '/') {
-		return true
-	}
-	return false
-}
+type fset map[string]bool
 
-func normPaths(root string, abspaths []string) ([]string, error) {
-	aroot, err := filepath.Abs(root)
-	if err != nil {
-		return nil, err
-	}
-	ret := make([]string, len(abspaths))
-	for i, p := range abspaths {
-		norm, err := filepath.Abs(p)
-		if err != nil {
-			return nil, err
-		}
-		if isUnder(aroot, norm) {
-			norm, err = filepath.Rel(aroot, norm)
-			if err != nil {
-				return nil, err
-			}
-		}
-		ret[i] = filepath.ToSlash(norm)
-	}
-	return ret, nil
-}
-
-// An existenceChecker checks the existence of a file
+// existenceChecker checks the existence of a file.
 type existenceChecker interface {
 	Check(p string) bool
 }
 
 type statExistenceChecker struct{}
 
-func (sc statExistenceChecker) Check(p string) bool {
-	fi, err := os.Stat(p)
-	if err == nil && !fi.IsDir() {
-		return true
-	}
-	return false
-}
-
-// Mod encapsulates a set of changes
+// Mod encapsulates a set of changes.
 type Mod struct {
 	Changed []string
 	Deleted []string
 	Added   []string
 }
 
-func (mod Mod) String() string {
-	return fmt.Sprintf(
-		"Added: %v\nDeleted: %v\nChanged: %v",
-		mod.Added, mod.Deleted, mod.Changed,
-	)
+type Watcher struct {
+	evtch  chan EventInfo
+	modch  chan *Mod
+	fsw    *FSWatcher
+	closed bool
+	sync.Mutex
 }
 
-// All returns a single list of all files changed or added - deleted files are
-// not included.
+func (sc statExistenceChecker) Check(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+func (mod Mod) String() string {
+	return fmt.Sprintf("Added: %v\nDeleted: %v\nChanged: %v", mod.Added, mod.Deleted, mod.Changed)
+}
+
+func (mod Mod) Empty() bool {
+	return len(mod.Changed)+len(mod.Deleted)+len(mod.Added) == 0
+}
+
+// All returns a single list of all files changed or added : deleted files are not included.
 func (mod Mod) All() []string {
-	all := make(map[string]bool)
+	m := make(map[string]bool, len(mod.Changed)+len(mod.Added))
 	for _, p := range mod.Changed {
-		all[p] = true
+		m[p] = true
 	}
 	for _, p := range mod.Added {
-		all[p] = true
+		m[p] = true
 	}
-	return _keys(all)
+	return sortedKeys(m)
 }
 
-// Has checks if a given Mod includes a specified file
+// Has checks if a given Mod includes a specified file.
 func (mod Mod) Has(p string) bool {
-	for _, v := range mod.All() {
-		if filepath.Clean(p) == filepath.Clean(v) {
-			return true
+	clean := filepath.Clean(p)
+	for _, list := range [][]string{mod.Changed, mod.Added} {
+		for _, v := range list {
+			if filepath.Clean(v) == clean {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// Empty checks if this mod set is empty
-func (mod Mod) Empty() bool {
-	if (len(mod.Changed) + len(mod.Deleted) + len(mod.Added)) > 0 {
-		return false
-	}
-	return true
-}
-
-func joinLists(a []string, b []string) []string {
-	m := map[string]bool{}
-	for _, v := range a {
-		m[v] = true
-	}
-	for _, v := range b {
-		m[v] = true
-	}
-	ret := slices.Collect(maps.Keys(m))
-	slices.Sort(ret)
-	return ret
-}
-
-// Join two Mods together, resulting in a new structure where each modification
-// list is sorted alphabetically.
+// Join two Mods together, resulting in a new structure where each list is sorted alphabetically.
 func (mod Mod) Join(b Mod) Mod {
+	merge := func(a, b []string) []string {
+		m := make(map[string]bool, len(a)+len(b))
+		for _, v := range a {
+			m[v] = true
+		}
+		for _, v := range b {
+			m[v] = true
+		}
+		return sortedKeys(m)
+	}
 	return Mod{
-		Changed: joinLists(mod.Changed, b.Changed),
-		Deleted: joinLists(mod.Deleted, b.Deleted),
-		Added:   joinLists(mod.Added, b.Added),
+		Changed: merge(mod.Changed, b.Changed),
+		Deleted: merge(mod.Deleted, b.Deleted),
+		Added:   merge(mod.Added, b.Added),
 	}
 }
 
-// Filter applies a filter, returning a new Mod structure
-func (mod Mod) Filter(root string, includes []string, excludes []string) (*Mod, error) {
+// Filter applies a filter, returning a new Mod structure.
+func (mod Mod) Filter(includes, excludes []string) (*Mod, error) {
 	changed, err := filter.Files(mod.Changed, includes, excludes)
 	if err != nil {
 		return nil, err
@@ -166,19 +131,116 @@ func (mod *Mod) normPaths(root string) (*Mod, error) {
 	return &Mod{Changed: changed, Deleted: deleted, Added: added}, nil
 }
 
-func _keys(m map[string]bool) []string {
-	if len(m) == 0 {
-		return nil
+func (w *Watcher) send(m *Mod) {
+	w.Lock()
+	defer w.Unlock()
+	if !w.closed {
+		w.modch <- m
 	}
-	keys := slices.Collect(maps.Keys(m))
-	slices.Sort(keys)
-	return keys
 }
 
-type fset map[string]bool
+// Stop watching, and close the channel passed to Watch.
+func (w *Watcher) Stop() {
+	w.Lock()
+	defer w.Unlock()
+	if !w.closed {
+		w.fsw.Stop()
+		close(w.modch)
+		w.closed = true
+	}
+}
 
-func mkmod(exists existenceChecker, added fset, removed fset, changed fset, renamed fset) Mod {
-	ret := Mod{}
+func isUnder(parent, child string) bool {
+	parent = filepath.ToSlash(parent)
+	child = filepath.ToSlash(child)
+	off := strings.Index(child, parent)
+	return off == 0 && (len(child) == len(parent) || child[len(parent)] == '/')
+}
+
+func normPaths(root string, paths []string) ([]string, error) {
+	aroot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]string, len(paths))
+	for i, p := range paths {
+		norm, err := filepath.Abs(p)
+		if err != nil {
+			return nil, err
+		}
+		if isUnder(aroot, norm) {
+			norm, err = filepath.Rel(aroot, norm)
+			if err != nil {
+				return nil, err
+			}
+		}
+		ret[i] = filepath.ToSlash(norm)
+	}
+	return ret, nil
+}
+
+func sortedKeys(m map[string]bool) []string {
+	return slices.Sorted(maps.Keys(m)) // slices.Sorted available in Go 1.21
+}
+
+func resolveDir(bdir, root string) string {
+	for {
+		if stat, err := os.Lstat(bdir); err == nil && stat.IsDir() {
+			return bdir
+		}
+		if bdir == "" {
+			return root
+		}
+		bdir = filepath.Dir(bdir)
+	}
+}
+
+func resolveSymlink(bdir, trailer string) (string, string, error) {
+	lnk, err := os.Readlink(bdir)
+	if err != nil {
+		return "", "", err
+	}
+	if !filepath.IsAbs(lnk) {
+		lnk = filepath.Join(bdir, lnk)
+	}
+	include := lnk
+	if trailer != "" {
+		include = lnk + "/" + trailer
+	}
+	return lnk, include, nil
+}
+
+func baseDirs(root string, includePatterns []string) ([]string, []string) {
+	root = filepath.FromSlash(root)
+	bases := make([]string, len(includePatterns))
+	newincludes := includePatterns[:]
+
+	for i, v := range includePatterns {
+		bdir, trailer := filter.SplitPattern(v)
+		if !filepath.IsAbs(bdir) {
+			bdir = filepath.Join(root, filepath.FromSlash(bdir))
+		}
+		stat, err := os.Lstat(bdir)
+		if err != nil {
+			bases[i] = resolveDir(bdir, root)
+			continue
+		}
+		if stat.Mode()&os.ModeSymlink != 0 {
+			resolved, include, err := resolveSymlink(bdir, trailer)
+			if err != nil {
+				continue
+			}
+			bdir = resolved
+			newincludes[i] = include
+		} else {
+			bdir = resolveDir(bdir, root)
+		}
+		bases[i] = bdir
+	}
+	return newincludes, bases
+}
+
+func mkmod(exists existenceChecker, added, removed, changed, renamed fset) Mod {
 	for k := range renamed {
 		if exists.Check(k) {
 			added[k] = true
@@ -204,18 +266,19 @@ func mkmod(exists existenceChecker, added fset, removed fset, changed fset, rena
 			delete(changed, k)
 		}
 	}
-	ret.Added = _keys(added)
-	ret.Changed = _keys(changed)
-	ret.Deleted = _keys(removed)
-	return ret
+	return Mod{
+		Added:   sortedKeys(added),
+		Changed: sortedKeys(changed),
+		Deleted: sortedKeys(removed),
+	}
 }
 
-func batch(lullTime time.Duration, maxTime time.Duration, exists existenceChecker, ch chan EventInfo) *Mod {
-	added := make(map[string]bool)
-	removed := make(map[string]bool)
-	changed := make(map[string]bool)
-	renamed := make(map[string]bool)
+func batch(lullTime, maxTime time.Duration, exists existenceChecker, ch chan EventInfo) *Mod {
+	added, removed, changed, renamed := make(fset), make(fset), make(fset), make(fset)
 	hadLullMod := false
+	maxTimer := time.NewTimer(maxTime)
+	defer maxTimer.Stop()
+
 	for {
 		select {
 		case evt, ok := <-ch:
@@ -234,112 +297,18 @@ func batch(lullTime time.Duration, maxTime time.Duration, exists existenceChecke
 				renamed[evt.Path()] = true
 			}
 		case <-time.After(lullTime):
-			if hadLullMod == false {
-				m := mkmod(exists, added, removed, changed, renamed)
-				return &m
+			if !hadLullMod {
+				return new(mkmod(exists, added, removed, changed, renamed))
 			}
 			hadLullMod = false
-		case <-time.After(maxTime):
-			m := mkmod(exists, added, removed, changed, renamed)
-			return &m
+		case <-maxTimer.C:
+			return new(mkmod(exists, added, removed, changed, renamed))
 		}
 	}
-}
-
-// Watcher is a handle that allows a Watch to be terminated
-type Watcher struct {
-	evtch  chan EventInfo
-	modch  chan *Mod
-	fsw    *FSWatcher
-	closed bool
-
-	sync.Mutex
-}
-
-func (w *Watcher) send(m *Mod) {
-	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		w.modch <- m
-	}
-}
-
-// Stop watching, and close the channel passed to Watch.
-func (w *Watcher) Stop() {
-	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		w.fsw.Stop()
-		close(w.modch)
-		w.closed = true
-	}
-}
-
-// Find the nearest enclosing directory
-func enclosingDir(path string) string {
-	for {
-		if stat, err := os.Lstat(path); err == nil {
-			if stat.IsDir() {
-				return path
-			}
-		}
-		if path == "" {
-			return ""
-		}
-		path = filepath.Dir(path)
-	}
-}
-
-func baseDirs(root string, includePatterns []string) ([]string, []string) {
-	root = filepath.FromSlash(root)
-	bases := make([]string, len(includePatterns))
-	newincludes := includePatterns[:]
-	for i, v := range includePatterns {
-		bdir, trailer := filter.SplitPattern(v)
-		if !filepath.IsAbs(bdir) {
-			bdir = filepath.Join(root, filepath.FromSlash(bdir))
-		}
-		if stat, err := os.Lstat(bdir); err == nil {
-			if stat.Mode()&os.ModeSymlink != 0 {
-				lnk, err := os.Readlink(bdir)
-				if err != nil {
-					continue
-				}
-				if filepath.IsAbs(lnk) {
-					bdir = lnk
-				} else {
-					bdir = filepath.Join(bdir, lnk)
-				}
-				if trailer != "" {
-					newincludes[i] = bdir + "/" + trailer
-				} else {
-					newincludes[i] = bdir
-				}
-			} else {
-				bdir = enclosingDir(bdir)
-				if bdir == "" {
-					bdir = root
-				}
-			}
-		} else {
-			bdir = enclosingDir(bdir)
-			if bdir == "" {
-				bdir = root
-			}
-		}
-		bases[i] = bdir
-	}
-	return newincludes, bases
 }
 
 // Watch watches a set of include and exclude patterns relative to a given root.
-func Watch(
-	root string,
-	includes []string,
-	excludes []string,
-	lullTime time.Duration,
-	ch chan *Mod,
-) (*Watcher, error) {
+func Watch(root string, includes, excludes []string, lullTime time.Duration, ch chan *Mod) (*Watcher, error) {
 	evtch := make(chan EventInfo, 4096)
 	newincludes, paths := baseDirs(root, includes)
 
@@ -347,14 +316,12 @@ func Watch(
 	if err != nil {
 		return nil, fmt.Errorf("could not create watcher: %w", err)
 	}
-
 	for _, p := range paths {
 		if err := fsw.Add(p); err != nil {
 			fsw.Stop()
 			return nil, fmt.Errorf("could not watch path %q: %w", p, err)
 		}
 	}
-
 	fsw.Start()
 
 	w := &Watcher{evtch: evtch, modch: ch, fsw: fsw}
@@ -371,18 +338,22 @@ func Watch(
 			b := batch(lullTime, MaxLullWait, statExistenceChecker{}, evtch)
 			if b == nil {
 				return
-			} else if !b.Empty() {
-				b, err := b.normPaths(root)
-				if err != nil {
-					continue
-				}
-				b, err = b.Filter(root, newincludes, excludes)
-				if err != nil {
-					continue
-				}
-				if !b.Empty() {
-					w.send(b)
-				}
+			}
+			if b.Empty() {
+				continue
+			}
+			b, err := b.normPaths(root)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "moddwatch: normPaths error: %v\n", err)
+				continue
+			}
+			b, err = b.Filter(newincludes, excludes)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "moddwatch: filter error: %v\n", err)
+				continue
+			}
+			if !b.Empty() {
+				w.send(b)
 			}
 		}
 	}()
@@ -390,36 +361,31 @@ func Watch(
 }
 
 // List all files under the root that match the specified patterns.
-func List(root string, includePatterns []string, excludePatterns []string) ([]string, error) {
+func List(root string, includePatterns, excludePatterns []string) ([]string, error) {
 	root = filepath.FromSlash(root)
 	newincludes, bases := baseDirs(root, includePatterns)
-	ret := []string{}
+	var ret []string
+
 	for _, b := range bases {
-		err := filepath.WalkDir(
-			b,
-			func(p string, d os.DirEntry, err error) error {
-				if err != nil {
-					return nil
-				}
-				fi, err := d.Info()
-				if err != nil || fi.Mode()&os.ModeSymlink != 0 {
-					return nil
-				}
-				cleanpath, err := filter.File(p, newincludes, excludePatterns)
-				if err != nil {
-					return nil
-				}
-				if d.IsDir() {
-					m, err := filter.MatchAny(p, excludePatterns)
-					if err != nil && !m {
-						return filepath.SkipDir
-					}
-				} else if cleanpath != "" {
-					ret = append(ret, cleanpath)
+		err := filepath.WalkDir(b, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			fi, err := d.Info()
+			if err != nil || fi.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if d.IsDir() {
+				if m, err := filter.MatchAny(p, excludePatterns); err != nil && !m {
+					return filepath.SkipDir
 				}
 				return nil
-			},
-		)
+			}
+			if cleanpath, err := filter.File(p, newincludes, excludePatterns); err == nil && cleanpath != "" {
+				ret = append(ret, cleanpath)
+			}
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
