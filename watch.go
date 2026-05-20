@@ -69,14 +69,8 @@ func (mod Mod) All() []string {
 // Has checks if a given Mod includes a specified file.
 func (mod Mod) Has(p string) bool {
 	clean := filepath.Clean(p)
-	for _, list := range [][]string{mod.Changed, mod.Added} {
-		for _, v := range list {
-			if filepath.Clean(v) == clean {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(mod.Changed, func(v string) bool { return filepath.Clean(v) == clean }) ||
+		slices.ContainsFunc(mod.Added, func(v string) bool { return filepath.Clean(v) == clean })
 }
 
 // Join two Mods together, resulting in a new structure where each list is sorted alphabetically.
@@ -360,6 +354,19 @@ func Watch(root string, includes, excludes []string, lullTime time.Duration, ch 
 	return w, nil
 }
 
+func walkEntry(p string, d os.DirEntry, excludePatterns, newincludes []string, ret *[]string) error {
+	if d.IsDir() {
+		if m, err := filter.MatchAny(p, excludePatterns); err != nil && !m {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	if cleanpath, err := filter.File(p, newincludes, excludePatterns); err == nil && cleanpath != "" {
+		*ret = append(*ret, cleanpath)
+	}
+	return nil
+}
+
 // List all files under the root that match the specified patterns.
 func List(root string, includePatterns, excludePatterns []string) ([]string, error) {
 	root = filepath.FromSlash(root)
@@ -375,16 +382,7 @@ func List(root string, includePatterns, excludePatterns []string) ([]string, err
 			if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 				return nil
 			}
-			if d.IsDir() {
-				if m, err := filter.MatchAny(p, excludePatterns); err != nil && !m {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if cleanpath, err := filter.File(p, newincludes, excludePatterns); err == nil && cleanpath != "" {
-				ret = append(ret, cleanpath)
-			}
-			return nil
+			return walkEntry(p, d, excludePatterns, newincludes, &ret)
 		})
 		if err != nil {
 			return nil, err
