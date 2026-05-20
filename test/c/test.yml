@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-go:
+    name: Go tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install libfswatch
+        run: brew install fswatch
+
+      - name: Run Go tests
+        env:
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-I/opt/homebrew/include"
+          CGO_LDFLAGS: "-L/opt/homebrew/lib -lfswatch"
+        run: go test ./...
+
+  test-c-macos:
+    name: C bridge tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libfswatch
+        run: brew install fswatch
+
+      - name: Build and run C tests
+        shell: bash
+        run: |
+          FSWATCH_PREFIX=$(brew --prefix fswatch)
+          cd test/c
+          gcc -I../.. -I${FSWATCH_PREFIX}/include \
+            test_bridge.c ../../fswatch_bridge.c \
+            ${FSWATCH_PREFIX}/lib/libfswatch.a \
+            -lc++ -lpthread \
+            -framework CoreFoundation -framework CoreServices \
+            -o test_bridge
+          ./test_bridge
+
+  test-c-linux:
+    name: C bridge tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libfswatch
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool gettext gettext-base autopoint git
+          git clone --depth=1 https://github.com/emcrisostomo/fswatch /tmp/fswatch
+          cd /tmp/fswatch
+          ./autogen.sh
+          ./configure --prefix=/usr/local --enable-static --disable-shared --disable-nls
+          make -j$(nproc)
+          sudo make install
+
+      - name: Build and run C tests
+        shell: bash
+        run: |
+          cd test/c
+          gcc -I../.. -I/usr/local/include \
+            test_bridge.c ../../fswatch_bridge.c \
+            /usr/local/lib/libfswatch.a \
+            -lstdc++ -lm -lpthread -o test_bridge
+          ./test_bridge
