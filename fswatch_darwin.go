@@ -20,15 +20,15 @@ type fswEvent struct {
 	path  string
 }
 
-func (e fswEvent) Event() Event     { return e.event }
-func (e fswEvent) Path() string     { return e.path }
-func (e fswEvent) Sys() interface{} { return nil }
-
 type FSWatcher struct {
 	handle C.MODDWATCH_HANDLE
 	Events chan EventInfo
 	done   chan struct{}
 }
+
+func (e fswEvent) Event() Event     { return e.event }
+func (e fswEvent) Path() string     { return e.path }
+func (e fswEvent) Sys() interface{} { return nil }
 
 func NewFSWatcher() (*FSWatcher, error) {
 	h := C.moddwatch_create()
