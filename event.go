@@ -14,5 +14,5 @@ const (
 type EventInfo interface {
 	Event() Event
 	Path() string
-	Sys() interface{}
+	Sys() any
 }
