@@ -4,6 +4,6 @@
 ModdWatch is a library for building tools that watch files and directories for
 modifications.
 
-Update: Using fswatch via CGO to monitor files.
-The main benefit isn't so much the raw speed as it is the reliability, especially on macOS, where notify had known race conditions
-(see: a comment in the original code explicitly states this).
+File watching library for Go backed by [libfswatch](https://github.com/emcrisostomo/fswatch) via CGo.
+Uses kqueue on macOS and inotify on Linux. Works with Docker volume mounts.
+Fork of [cortesi/moddwatch](https://github.com/cortesi/moddwatch), used by [modd](https://github.com/M2G/modd).
