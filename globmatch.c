@@ -41,13 +41,21 @@ static const char *match_class(const char *cls, char c, bool *matched) {
     return cls;
 }*/
 
+static const char *segment_end(const char *s) {
+    const char *slash = strchr(s, '/');
+    return slash ? slash : s + strlen(s);
+}
+
 static bool match_segment(const char *pat, const char *str) {
     if (*pat == '\0') return *str == '\0';
     //if (*pat == '*') return match_star(...)
     if (*pat == '?') return *str != '\0' && match_segment(pat + 1, str + 1);
-
 }
 
 bool glob_match(const char *pattern, const char *path) {
 
+    const char *pat_end = segment_end(pattern);
+    const char *path_end = segment_end(path);
+
+    return glob_match(pat_end + 1, pat_end + 1);
 }
