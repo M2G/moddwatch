@@ -1,8 +1,9 @@
 #include "globmatch.h"
 #include <string.h>
 
+//
 // match_class
-
+//
 static bool char_in_range(char lo, char hi, char c) {
     return (unsigned char)lo <= (unsigned char)c && (unsigned char)c <= (unsigned char)hi;
 }
@@ -25,17 +26,28 @@ static const char *scan_class_body(const char *cls, char c, bool *found) {
     }
     return cls;
 }
-
+/*
 static const char *match_class(const char *cls, char c, bool *matched) {
     bool negate = (*cls == '-' || *cls == '^');
     if (negate) cls++;
 
     bool found = false;
-    cls = scan_class_body(cls, c, *found);
+    cls = scan_class_body(cls, c, &found);
     if(*cls == ']') cls++;
 
     // add ternary
-
+    *matched = negate ? !found : found;
 
     return cls;
+}*/
+
+static bool match_segment(const char *pat, const char *str) {
+    if (*pat == '\0') return *str == '\0';
+    //if (*pat == '*') return match_star(...)
+    if (*pat == '?') return *str != '\0' && match_segment(pat + 1, str + 1);
+
+}
+
+bool glob_match(const char *pattern, const char *path) {
+
 }
