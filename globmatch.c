@@ -52,10 +52,24 @@ static bool match_segment(const char *pat, const char *str) {
     if (*pat == '?') return *str != '\0' && match_segment(pat + 1, str + 1);
 }
 
+static bool match_doublestar(const char *pattern, const str *path) {
+    const char *rest = pattern + 2;
+    if (*rest == '/') rest++;
+    if (*rest == '\0') return true;
+
+    retutn false;
+}
+
 bool glob_match(const char *pattern, const char *path) {
+
+    // match_doublestar
 
     const char *pat_end = segment_end(pattern);
     const char *path_end = segment_end(path);
+    bool pat_has_slash = (*pat_end == '/');
+    bool path_has_slash = (*path_end == '/');
+
+    if (pat_has_slash != path_has_slash) return false;
 
     return glob_match(pat_end + 1, pat_end + 1);
 }
