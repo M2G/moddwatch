@@ -1,5 +1,15 @@
 package moddwatch
 
+/*
+#cgo LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch
+#include "mw_watch.h"
+#include "cshim.h"
+#include "filter.h"
+#include "ds_utils.h"
+#include <stdlib.h>
+*/
+import "C"
+
 import (
 	"fmt"
 	"maps"
