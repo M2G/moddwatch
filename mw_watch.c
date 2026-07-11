@@ -25,6 +25,24 @@ struct mw_session {
     mv_callback_context ctx;
 };
 
-void mw_session_start(mw_session *s) {}
-void mw_session_stop(mw_session *s) {}
-void mw_session_destroy(mw_session *s) {}
+static size_t count_patterns(const char *const *patterns){}
+
+static char **dup_pattern_array(const char *const *pattern){}
+
+static void free_pattern_attay(char **patterns){}
+
+static const char *relative_to_root(const char *path, const char *root){}
+
+static void internal_fsw_callback(fsw_cevent const *const events, const unsigned int event_num, void *data){}
+
+static void *monitor_thread_main(void *arg){}
+
+void mw_session_start(mw_session *s) {
+
+}
+void mw_session_stop(mw_session *s) {
+
+}
+void mw_session_destroy(mw_session *s) {
+
+}
