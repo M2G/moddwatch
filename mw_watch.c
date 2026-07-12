@@ -45,9 +45,12 @@ static void internal_fsw_callback(fsw_cevent const *const events, const unsigned
 
 static void *monitor_thread_main(void *arg){}
 
-void mw_session_start(mw_session *s) {
-
+bool mw_session_start(mw_session *s) {
+    if (!s || s->thread_running || !cb) return false;
+    // ..
+    return true;
 }
+
 void mw_session_stop(mw_session *s) {
     if (!s || !s->thread_running) return;
     fsw_stop_monitor(s->handle);
