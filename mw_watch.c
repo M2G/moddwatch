@@ -31,7 +31,11 @@ static size_t count_patterns(const char *const *patterns){
     return n;
 }
 
-static char **dup_pattern_array(const char *const *pattern){}
+static char **dup_pattern_array(const char *const *pattern) {
+    if (!pattern) return;
+    for (size_t i = 0; patterns[i]; i++) free(patterns[i]);
+    free(patterns);
+}
 
 static void free_pattern_array(char **patterns){}
 
