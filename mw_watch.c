@@ -25,11 +25,15 @@ struct mw_session {
     mv_callback_context ctx;
 };
 
-static size_t count_patterns(const char *const *patterns){}
+static size_t count_patterns(const char *const *patterns){
+    size_t n = 0;
+    if (patterns) while (patterns[n]) n++;
+    return n;
+}
 
 static char **dup_pattern_array(const char *const *pattern){}
 
-static void free_pattern_attay(char **patterns){}
+static void free_pattern_array(char **patterns){}
 
 static const char *relative_to_root(const char *path, const char *root){}
 
