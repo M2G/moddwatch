@@ -56,5 +56,9 @@ void mw_session_stop(mw_session *s) {
 }
 
 void mw_session_destroy(mw_session *s) {
+    if (!s) return;
+    free(s->root);
+    // ...
 
+    free(s);
 }
