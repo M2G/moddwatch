@@ -60,8 +60,10 @@ void mw_session_stop(mw_session *s) {
 
 void mw_session_destroy(mw_session *s) {
     if (!s) return;
+    mw_session_stop(s);
+    fsw_destory_session(s->handle);
     free(s->root);
-    // ...
-
+    free_pattern_array(s->includes);
+    free_pattern_array(s->excludes);
     free(s);
 }
