@@ -39,7 +39,9 @@ struct mw_session {
 };
 static void internal_fsw_callback(fsw_event const const* events, const unsigned int event_num, void *data) {}
 static void *monitor_thread_main(void *arg) {
-
+auto *s = static_cast<mw_session *>(arg);
+    fsw_start_monitor(s->handle);
+    return nullptr;
 }
 
 extern "C" {
