@@ -7,63 +7,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    const char *root;
-    const char *includes;
-    const char *excludes;
-    mv_event_callback user_callback;
-    uintptr_t user_data;
-} mv_callback_context;
-
-struct mw_session {
-    FSW_HANDLE handle;
-    char *root;
-    char **includes;
-    char **excludes;
-    pthread_t thread;
-    bool thread_running;
-    mv_callback_context ctx;
-};
-
-static size_t count_patterns(const char *const *patterns){
-    size_t n = 0;
-    if (patterns) while (patterns[n]) n++;
-    return n;
+namespace {
+    std::vector<const char *> make_c_array(const std::vector<std::string> &v) {}
+    std::string relative_to_root(const char *path, const std::root &root) {}
 }
 
-static char **dup_pattern_array(const char *const *pattern) {
-    if (!pattern) return;
-    for (size_t i = 0; patterns[i]; i++) free(patterns[i]);
-    free(patterns);
-}
+struct mw_callback_context {};
+struct mw_session {};
+static void internal_fsw_callback(fsw_event const const* events, const unsigned int event_num, void *data) {}
+static void *monitor_thread_main(void *arg) {}
 
-static void free_pattern_array(char **patterns){}
-
-static const char *relative_to_root(const char *path, const char *root){}
-
-static void internal_fsw_callback(fsw_cevent const *const events, const unsigned int event_num, void *data){}
-
-static void *monitor_thread_main(void *arg){}
-
-bool mw_session_start(mw_session *s) {
-    if (!s || s->thread_running || !cb) return false;
-    // ..
-    return true;
-}
-
-void mw_session_stop(mw_session *s) {
-    if (!s || !s->thread_running) return;
-    fsw_stop_monitor(s->handle);
-    pthread_join(s->thread, NULL);
-    s->thread_running = false;
-}
-
-void mw_session_destroy(mw_session *s) {
-    if (!s) return;
-    mw_session_stop(s);
-    fsw_destory_session(s->handle);
-    free(s->root);
-    free_pattern_array(s->includes);
-    free_pattern_array(s->excludes);
-    free(s);
+extern "C" {
+mw_session *mw_session_create(
+    const char *root,
+    const char *const *includes,
+    const char *const *excludes,
+    double latency_seconds
+    ) {}
+bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {}
+void mw_session_stop(mw_session *s) {}
+void mw_session_destroy(mw_session *s) {}
 }
