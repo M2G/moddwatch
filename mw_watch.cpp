@@ -25,6 +25,16 @@ mw_session *mw_session_create(
     double latency_seconds
     ) {}
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {}
-void mw_session_stop(mw_session *s) {}
-void mw_session_destroy(mw_session *s) {}
+void mw_session_stop(mw_session *s) {
+    if (!s || !s->thread_running) return;
+    fsw_stop_monitor(s->handle);
+    pthread_join(s->thread, nullptr);
+    s->thread_running = false;
+}
+void mw_session_destroy(mw_session *s) {
+    if (!s) return;
+    mw_session_stop(s);
+    fsw_destroy_session(s->handle);
+    delete s; // (RAII)
+}
 }
