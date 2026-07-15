@@ -14,7 +14,11 @@ namespace {
         return out;
     }
     std::string relative_to_root(const char *path, const std::root &root) {
-        // ...
+        size_t root_len = root.size();
+        if (std::strncmp(path, root.c_str(), root_len) == 0) {
+            if (path[root_len] == '/') return path + root_len + 1;
+            if (path[root_len] == '\0') return "";
+        }
         return path;
     }
 }
