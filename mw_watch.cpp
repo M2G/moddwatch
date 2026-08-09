@@ -55,7 +55,7 @@ mw_session *mw_session_create(
     const char *const *excludes,
     double latency_seconds
     ) {
-
+    if (fsw_init_library() != FSW_OK) return nullptr;
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
