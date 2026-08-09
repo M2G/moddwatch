@@ -60,7 +60,14 @@ mw_session *mw_session_create(
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
     if (!s || s->thread_running || !cb) return false;
-    //...
+
+    s->ctx.root = &s->root;
+    s->ctx.includes = &s->includes.empty() ? nullptr : s->includes_c.data();
+    s->ctx.excludes = &s->excludes.empty() ? nullptr : s->excludes_c.data();
+    s->ctx.user_callback = cb;
+    s->ctx.user_data = user_data;
+
+
     return true;
 }
 
