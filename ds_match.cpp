@@ -26,5 +26,7 @@ namespace {
           // len > 0 + pattern[0] == "{" = true
      }
 
+     ds_result do_match_with_separator(){}
+
 
 }
