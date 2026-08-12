@@ -2,6 +2,12 @@
 
 #include <stdio.h>
 
+bool ds_validate_pattern(const char *s, size_t len, char separator) {
+    // ...
+    int alt_depth = 0;
+    for (size_t i = 0; i < len; i++) {}
+}
+
 long ds_index_matched_closing_alt(const char *s, size_t len, bool allow_escaping) {
 
     int alts = 1;

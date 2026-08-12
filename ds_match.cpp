@@ -19,7 +19,7 @@ namespace {
           size_t name_idx
      );
 
-     bool is_zero_length_pattern(const char *pattern, size_t pat_len)
+     bool is_zero_length_pattern(const char *pattern, size_t len)
      {
           if (len == 0) return true;
           if (len == 1 && pattern[0] == '*') return true;
@@ -29,11 +29,27 @@ namespace {
           if (len == 4 && pattern[0] == SEPARATOR && pattern[1] == '*' && pattern[2] == '*' && pattern[3] == SEPARATOR) return true;
 
           if (len > 0 && pattern[0] == '{') {
-               // ...
+               long closing_rel = ds_index_matched_closing_alt(pattern + 1, len - 1, true);
+               if (closing_rel == -1) return DS_BAD_PATTERN;
+               size_t closing_idx = 1 + static_cast<size_t>(closing_rel);
+               size_t search_start = 1;
+               for (;;) {
+                    long comma_rel = ds_index_next_alt(pattern + search_start, closing_idx - search_start, true);
+                    size_t alt_end = (comma_rel == -1) ? closing_idx : search_start + static_cast<size_t>(comma_rel);
+
+                    std::string rest;
+                    rest.append(pattern + search_start, alt_end - search_start);
+                    rest.append(pattern + closing_idx + 1, len - (closing_idx + 1));
+
+                    ds_result r = is_zero_length_pattern(rest.c_str(), rest.size());
+                    if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
+                    if (comma_rel) break;
+                    search_start = alt_end + 1;
+               }
+               return DS_NO_MATCH;
           }
-
-
-         return false;
+          if (!ds_validate_pattern(pattern, len, SEPARATOR)) return DS_BAD_PATTERN;
+          return DS_NO_MATCH;
      }
 
      ds_result do_match_with_separator(
