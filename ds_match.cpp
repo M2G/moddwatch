@@ -70,6 +70,7 @@ namespace {
                bool did_continue = false;
                if (pat_idx < pat_len) {
                     char pc = pattern[pat_idx];
+                    // case '*'
                     if (pc == '*') {
                          pat_idx++;
                          if (pat_idx < pat_len && pattern[pat_idx] == '*') {
@@ -92,7 +93,45 @@ namespace {
                               did_continue = true;
                          }
                     }
-               }
+                    // case '?'
+                    if (pc == '?') {
+                         start_of_segment = false;
+                         char nc = name[name_idx]; //
+                         if (nc != SEPARATOR) {
+                              pat_idx++;
+                              name_idx++;
+                              did_continue = true;
+                         }
+                    }
+                    if (pc == '[') {
+                         start_of_segment = false;
+                         pat_idx++;
+                         if (pat_idx >= pat_len) return DS_BAD_PATTERN;
+                         char nc = name[name_idx];
+                         bool matched = false;
+                         bool negate = (pattern[pat_idx] == '!' || pattern[pat_idx] == '^');
+                         if (negate) pat_idx++;
+                         // classes vide (rien avant le ']') = pattern invalide
+                         if (pat_idx >= pat_len || pattern[pat_idx] == ']') return DS_BAD_PATTERN;
+
+                         int last = -1;
+                         while (pat_idx < pat_len && pattern[pat_idx] != ']') {
+                              char rc = pattern[pat_idx];
+                              pat_idx++;
+
+                              if (last != -1 && rc == '-' && pat_idx < pat_len && pattern[pat_idx] != ']') {
+                                   if (pattern[pat_idx] == '\\' && pat_idx + 1 < pat_len) pat_idx++;
+                                   char hi = pattern[pat_idx];
+                                   pat_idx++;
+                                   if (static_cast<unsigned char>(last) <= static_cast<unsigned char>(nc) && static_cast<unsigned char>(nc) <= static_cast<unsigned char>(hi)) {
+                                        matched = true;
+                                        break;
+                                   }
+                                   last = -1;
+                                   continue;
+                              }
+                         }
+                    }
           }
 
      }
