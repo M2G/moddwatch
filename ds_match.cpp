@@ -103,6 +103,7 @@ namespace {
                               did_continue = true;
                          }
                     }
+                    // case '['
                     if (pc == '[') {
                          start_of_segment = false;
                          pat_idx++;
@@ -115,6 +116,7 @@ namespace {
                          if (pat_idx >= pat_len || pattern[pat_idx] == ']') return DS_BAD_PATTERN;
 
                          int last = -1;
+                         // scan ranges a-z
                          while (pat_idx < pat_len && pattern[pat_idx] != ']') {
                               char rc = pattern[pat_idx];
                               pat_idx++;
@@ -130,11 +132,13 @@ namespace {
                                    last = -1;
                                    continue;
                               }
+                              char actual_rc = rc;
+                              if (rc == '\\') {}
                          }
                     }
+               }
+
           }
-
      }
-
 
 }
