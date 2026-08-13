@@ -83,8 +83,13 @@ namespace {
                                    doublestar_name_backtrack = static_cast<long>(name_idx);
                                    star_pattern_backtrack = -1;
                                    did_continue = true;
-
                               }
+                         }
+                         if (!did_continue) {
+                              start_of_segment = false;
+                              star_pattern_backtrack = static_cast<long>(pat_idx);
+                              star_name_backtrack = static_cast<long>(name_idx);
+                              did_continue = true;
                          }
                     }
                }
