@@ -19,7 +19,7 @@ namespace {
           size_t name_idx
      );
 
-     bool is_zero_length_pattern(const char *pattern, size_t len)
+     ds_result is_zero_length_pattern(const char *pattern, size_t len)
      {
           if (len == 0) return true;
           if (len == 1 && pattern[0] == '*') return true;
@@ -67,11 +67,25 @@ namespace {
           bool start_of_segment = true;
 
           while (name_idx < name_len) {
-               //...
+               bool did_continue = false;
                if (pat_idx < pat_len) {
                     char pc = pattern[pat_idx];
                     if (pc == '*') {
-                         // ...
+                         pat_idx++;
+                         if (pat_idx < pat_len && pattern[pat_idx] == '*') {
+                              pat_idx++;
+                              if (start_of_segment) {
+                                   if (pat_idx >= pat_len) return DS_MATCH; // pattern qui se termine "/**"
+                              }
+                              if (pattern[pat_idx] == SEPARATOR) {
+                                   pat_idx++;
+                                   doublestar_pattern_backtrack = static_cast<long>(pat_idx);
+                                   doublestar_name_backtrack = static_cast<long>(name_idx);
+                                   star_pattern_backtrack = -1;
+                                   did_continue = true;
+
+                              }
+                         }
                     }
                }
           }
