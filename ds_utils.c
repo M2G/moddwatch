@@ -2,6 +2,17 @@
 
 #include <stdio.h>
 
+long ds_index_unescaped_byte(const char *s, size_t len, char c, bool allow_escaping) {
+    for (size_t i = 0; i < len; i++) {
+        if (allow_escaping && s[i] == '\\') {
+            i++;
+        } else if (s[i] == c) {
+            return (long)i;
+        }
+    }
+    return -1;
+}
+
 bool ds_validate_pattern(const char *s, size_t len, char separator) {
     // ...
     int alt_depth = 0;

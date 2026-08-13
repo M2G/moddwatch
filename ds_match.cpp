@@ -133,9 +133,36 @@ namespace {
                                    continue;
                               }
                               char actual_rc = rc;
-                              if (rc == '\\') {}
+                              if (rc == '\\') {
+                                  actual_rc = pattern[pat_idx];
+                                   pat_idx++;
+                              }
+                              if (actual_rc == nc) {
+                                   matched = true;
+                                   break;
+                              }
+                              last = static_cast<unsigned char>(actual_rc);
+                         }
+
+                         // matched == negate = fail
+                         // sinon cherche le ']'
+                         if (matched == negate) {
+                              if (pat_idx >= pat_len) return DS_BAD_PATTERN;
+                              // did_continue = false = backtrack
+                         } else {
+                              long closing_rel = ds_index_unescaped_byte(
+                                   pattern + pat_idx,
+                                   pat_len - pat_idx,
+                                   ']',
+                                   true
+                              );
+                              if (closing_rel == -1) return DS_BAD_PATTERN;
+                              pat_idx += static_cast<size_t>(closing_rel) + 1;
+                              name_idx++;
+                              did_continue = true;
                          }
                     }
+
                }
 
           }
