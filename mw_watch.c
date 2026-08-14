@@ -1,6 +1,6 @@
-#define _POSIX_C_SOURCE 200809L
+/*#define _POSIX_C_SOURCE 200809L
 #include "mw_watch.h"
-#include "filter.h"
+// #include "filter.h"
 #include <libfswatch/c/libfswatch.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -41,7 +41,11 @@ struct mw_session {
     bool thread_running = false;
     mw_callback_context ctx;
 };
-static void internal_fsw_callback(fsw_event const const* events, const unsigned int event_num, void *data) {}
+
+static void internal_fsw_callback(fsw_event const const* events, const unsigned int event_num, void *data) {
+
+}
+
 static void *monitor_thread_main(void *arg) {
 auto *s = static_cast<mw_session *>(arg);
     fsw_start_monitor(s->handle);
@@ -84,4 +88,4 @@ void mw_session_destroy(mw_session *s) {
     fsw_destroy_session(s->handle);
     delete s; // (RAII)
 }
-}
+}*/

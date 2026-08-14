@@ -2,9 +2,25 @@
 #include "ds_utils.h"
 #include "<cstring>"
 #include <string>
-
+// @see https://github.com/bmatcuk/doublestar/blob/master/match.go
 namespace {
      constexpr char SEPARATOR = '/';
+
+     std::string build_substituted_pattern(
+          const char *pattern,
+          size_t pat_len,
+          size_t before_idx,
+          size_t alt_start,
+          size_t alt_end,
+          size_t after_idx
+          ) {
+          std::string result;
+          result.reserve(before_idx + (alt_end - alt_start));
+          result.append(pattern, before_idx);
+          result.append(pattern + before_idx, alt_end - alt_start);
+          result.append(pattern + after_idx, pat_len - after_idx);
+          return result;
+     }
 
      ds_result do_match_with_separator(
           const char *pattern,
@@ -162,7 +178,42 @@ namespace {
                               did_continue = true;
                          }
                     }
+                    if (pc == '{') {
+                         start_of_segment = false;
+                         size_t before_idx = pat_idx;
+                         pat_idx++;
+                         long closing_rel = ds_index_matched_closing_alt(
+                         pattern + pat_idx,
+                         pat_len - pat_idx,
+                         true);
+                         if (closing_rel == -1) return DS_BAD_PATTERN;
+                         size_t closing_idx = pat_idx + static_cast<size_t>(closing_rel);
 
+                         size_t search_start = pat_idx;
+                         for (;;) {
+                              long comma_rel = ds_index_next_alt(
+                                   pattern + search_start,
+                                   closing_idx - search_start,
+                                   true
+                                   );
+                              size_t alt_end = (comma_rel == -1) ?
+                              closing_idx + 1 :
+                              search_start + static_cast<size_t>(comma_rel);
+
+                              std::string sub = build_substituted_pattern(
+                                   pattern,
+                                   pat_len,
+                                   before_idx,
+                                   search_start,
+                                   alt_end,
+                                   closing_idx + 1
+                                   );
+
+                              ds_result r = do_match_with_separator(
+// ...
+                              );
+                         }
+                    }
                }
 
           }
