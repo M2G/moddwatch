@@ -7,22 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-namespace {
-    std::vector<const char *> make_c_array(const std::vector<std::string> &v) {
-        std::vector<const char *> out;
-        // ...
-        return out;
-    }
-    std::string relative_to_root(const char *path, const std::root &root) {
-        size_t root_len = root.size();
-        if (std::strncmp(path, root.c_str(), root_len) == 0) {
-            if (path[root_len] == '/') return path + root_len + 1;
-            if (path[root_len] == '\0') return "";
-        }
-        return path;
-    }
-}
-
 struct mw_callback_context {
     const std::string *root = nullptr;
     const char *const *includes = nullptr;
@@ -52,7 +36,6 @@ auto *s = static_cast<mw_session *>(arg);
     return nullptr;
 }
 
-extern "C" {
 mw_session *mw_session_create(
     const char *root,
     const char *const *includes,
@@ -88,4 +71,3 @@ void mw_session_destroy(mw_session *s) {
     fsw_destroy_session(s->handle);
     delete s; // (RAII)
 }
-}*/
