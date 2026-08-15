@@ -88,8 +88,16 @@ mw_session *mw_session_create(
 
     s->handle = h;
     s->root = strdup(root);
-    s->includes = includes;
-    s->excludes = excludes;
+    s->includes = dup_pattern_array(includes);
+    s->excludes = dup_pattern_array(excludes);
+
+    bool includes_ok = !includes || s->includes;
+    bool excludes_ok = !excludes || s->excludes;
+
+    if (!includes_ok || !excludes_ok) {
+        mw_session_destroy(s);
+        return NULL;
+    }
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
