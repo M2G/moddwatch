@@ -271,7 +271,7 @@ static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
                free(rest);
 
                if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
-               if (comma_rel) break;
+               if (comma_rel == -1) break;
                search_start = alt_end + 1;
           }
           return DS_NO_MATCH;
