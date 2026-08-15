@@ -57,6 +57,12 @@ static char **dup_pattern_array(const char *const *pattern) {
     return copy;
 }
 
+static void free_pattern_array(char **pattern) {
+    if (!pattern) return;
+    for (size_t i = 0; pattern[i]; i++) free(pattern[i]);
+    free(pattern);
+}
+
 mw_session *mw_session_create(
     const char *root,
     const char *const *includes,
@@ -96,6 +102,10 @@ mw_session *mw_session_create(
 
     if (!includes_ok || !excludes_ok) {
         mw_session_destroy(s);
+        free(s->root);
+        free_pattern_array(s->includes);
+        free_pattern_array(s->excludes);
+        free(s);
         return NULL;
     }
 }
