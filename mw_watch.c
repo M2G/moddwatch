@@ -47,7 +47,14 @@ static char **dup_pattern_array(const char *const *pattern) {
     size_t n = count_patterns(pattern);
     char **copy = calloc(n + 1, sizeof(char *));
     if (!copy) return NULL;
-
+    for (size_t i = 0; i < n; i++) {
+        copy[i] = strdup(pattern[i]);
+        if (!copy[i])
+            for (size_t j = i; j < n; j++) free(copy[j]);
+            free(copy);
+            return NULL;
+    }
+    return copy;
 }
 
 mw_session *mw_session_create(
