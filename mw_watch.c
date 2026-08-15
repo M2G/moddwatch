@@ -35,6 +35,21 @@ auto *s = static_cast<mw_session *>(arg);
     return nullptr;
 }
 
+static size_t count_patterns(const char *const *patterns) {
+    size_t n = 0;
+    if (patterns) while (*patterns[n]) n++;
+    return n;
+}
+
+// Structure proche de argv_free/argv_split du noyau Linux (lib/argv_split.c)
+static char **dup_pattern_array(const char *const *pattern) {
+    if (!pattern) return NULL;
+    size_t n = count_patterns(pattern);
+    char **copy = calloc(n + 1, sizeof(char *));
+    if (!copy) return NULL;
+
+}
+
 mw_session *mw_session_create(
     const char *root,
     const char *const *includes,
@@ -63,6 +78,11 @@ mw_session *mw_session_create(
     if (!s)
         fsw_destroy_session(h);
         return NULL;
+
+    s->handle = h;
+    s->root = strdup(root);
+    s->includes = includes;
+    s->excludes = excludes;
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
