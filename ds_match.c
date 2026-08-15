@@ -183,6 +183,7 @@ namespace {
                          start_of_segment = false;
                          size_t before_idx = pat_idx;
                          pat_idx++;
+
                          long closing_rel = ds_index_matched_closing_alt(
                          pattern + pat_idx,
                          pat_len - pat_idx,
@@ -221,3 +222,58 @@ namespace {
      }
 
 }*/
+#include "ds_match.h"
+#include "ds_utils.h"
+#include <stdlib.h>
+#include <string.h>
+
+#define SEPARATOR '/'
+
+static ds_result do_match_with_separator(
+    const char *pattern,
+    size_t pat_len,
+    const char *name,
+    size_t name_len,
+    long doublestar_pattern_backtrack,
+    long doublestar_name_backtrack,
+    long star_pattern_backtrack,
+    long star_name_backtrack,
+    size_t pat_idx,
+    size_t name_idx
+);
+
+static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
+     if (len == 0) return true;
+     if (len == 1 && pattern[0] == '*') return DS_MATCH;
+     if (len == 2 && pattern[0] == '*' && pattern[1] == '*') return DS_MATCH;
+     if (len == 3 && pattern[0] == SEPARATOR && pattern[1] == '*' && pattern[2] == '*') return DS_MATCH;
+     if (len == 3 && pattern[0] == '*' && pattern[1] == '*' && pattern[2] == SEPARATOR) return DS_MATCH;
+     if (len == 4 && pattern[0] == SEPARATOR && pattern[1] == '*' && pattern[2] == '*' && pattern[3] == SEPARATOR) return DS_MATCH;
+
+     if (len > 0 && pattern[0] == '{') {
+          long closing_rel = ds_index_matched_closing_alt(pattern + 1, len - 1, true);
+          if (closing_rel == -1) return DS_BAD_PATTERN;
+          size_t closing_idx = 1 + (size_t)closing_rel;
+          size_t search_start = 1;
+          for (;;) {
+               long comma_rel = ds_index_next_alt(pattern + search_start, closing_idx - search_start, true);
+               size_t alt_end = (comma_rel == -1) ? closing_idx : search_start + (size_t)comma_rel;
+
+               size_t alt_len = alt_end - search_start;
+               size_t tail_len = len - (closing_idx + 1);
+               char *rest = malloc(alt_len + tail_len + 1);
+               if (!rest) return DS_BAD_PATTERN;
+               memcpy(rest, pattern + search_start, alt_len);
+               memcpy(rest + alt_len, pattern + closing_idx + 1, tail_len);
+               rest[alt_len + tail_len] = '\0';
+
+               ds_result r = is_zero_length_pattern(rest, alt_len + tail_len);
+               free(rest);
+
+               if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
+               if (comma_rel) break;
+               search_start = alt_end + 1;
+          }
+          return DS_NO_MATCH;
+     }
+}
