@@ -1,4 +1,4 @@
-/*#define _POSIX_C_SOURCE 200809L
+#define _POSIX_C_SOURCE 200809L
 #include "mw_watch.h"
 // #include "filter.h"
 #include <libfswatch/c/libfswatch.h>
@@ -7,22 +7,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct mw_callback_context {
-    const std::string *root = nullptr;
-    const char *const *includes = nullptr;
-    const char *const *excludes = nullptr;
-    mw_event_callback user_callback = nullptr;
-    uintptr_t user_data = 0;
-};
+typedef struct {
+    const char *root;
+    const char *includes;
+    const char *excludes;
+    mv_event_callback user_callback;
+    uintptr_t user_data;
+} mw_callback_context;
+
 struct mw_session {
-    FSW_HANDLE handle = nullptr;
-    std::string root;
-    std::vector<std::string> includes;
-    std::vector<std::string> excludes;
-    std::vector<const char *> include_c;
-    std::vector<const char *> exclude_c;
-    pthread_t thread{};
-    bool thread_running = false;
+    FSW_HANDLE handle;
+    char *root;
+    char **includes;
+    char **excludes;
+    pthread_t thread;
+    bool thread_running;
     mw_callback_context ctx;
 };
 
@@ -42,7 +41,12 @@ mw_session *mw_session_create(
     const char *const *excludes,
     double latency_seconds
     ) {
-    if (fsw_init_library() != FSW_OK) return nullptr;
+    if (fsw_init_library() != FSW_OK) return NULL;
+
+    FSW_HANDLE h = fsw_init_session(system_default_monitor_type);
+    if (h == (FSW_HANDLE)FSW_INVALID_HANDLE) return NULL;
+
+    if (fsw_add_path())
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
