@@ -53,6 +53,10 @@ mw_session *mw_session_create(
     if (fsw_set_recursive(h, true) != FSW_OK)
         fsw_destroy_session(h);
         return NULL;
+
+    if (latency_seconds > 0.0 && fsw_set_latency(h, latency_seconds) != FSW_OK)
+        fsw_destroy_session(h);
+        return NULL;
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
