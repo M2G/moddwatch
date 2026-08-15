@@ -46,7 +46,13 @@ mw_session *mw_session_create(
     FSW_HANDLE h = fsw_init_session(system_default_monitor_type);
     if (h == (FSW_HANDLE)FSW_INVALID_HANDLE) return NULL;
 
-    if (fsw_add_path())
+    if (fsw_add_path(h, root) != FSW_OK)
+        fsw_destroy_session(h);
+        return NULL;
+
+    if (fsw_set_recursive(h, true) != FSW_OK)
+        fsw_destroy_session(h);
+        return NULL;
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
