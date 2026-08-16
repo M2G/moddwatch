@@ -438,7 +438,7 @@ static ds_result do_match_with_separator(
                     }
                } else {
                     size_t compare_idx = pat_idx;
-                    if (pattern[pat_idx] != '\\') {
+                    if (pattern[pat_idx] == '\\') {
                          compare_idx++;
                          if (compare_idx >= pat_len) return DS_BAD_PATTERN;
                     }
