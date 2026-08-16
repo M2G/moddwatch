@@ -454,5 +454,19 @@ static ds_result do_match_with_separator(
                     }
                }
           }
+          if (did_continue) continue;
+
+          if (star_pattern_backtrack != -1
+               && (size_t)star_name_backtrack < name_len
+               && name[star_name_backtrack] != SEPARATOR)
+               {
+                    star_name_backtrack++;
+               name_idx = (size_t)star_name_backtrack;
+               pat_idx = (size_t)star_pattern_backtrack;
+               start_of_segment = false;
+               continue;
+
+               }
+
      }
 }
