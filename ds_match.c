@@ -468,5 +468,14 @@ static ds_result do_match_with_separator(
 
                }
 
+          if (doublestar_name_backtrack != -1) {
+               long i = doublestar_name_backtrack;
+               while ((size_t)i < name_len && name[i] != SEPARATOR) i++;
+               if ((size_t)i < name_len) {
+                    // ...
+                    continue;
+               }
+          }
+
      }
 }
