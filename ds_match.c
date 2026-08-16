@@ -278,5 +278,14 @@ static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
      }
 }
 
-static ds_result do_match_with_separator(const char *pattern, size_t pat_len, const char *name) {
+static ds_result do_match_with_separator(
+     const char *pattern,
+     size_t pat_len,
+     const char *name,
+     size_t name_len,
+     long doublestar_pattern_backtrack,
+     long doublestar_name_backtrack,
+     size_t pat_idx,
+     size_t name_idx
+     ) {
 }
