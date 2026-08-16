@@ -35,12 +35,6 @@ auto *s = static_cast<mw_session *>(arg);
     return nullptr;
 }
 
-static size_t count_patterns(const char *const *patterns) {
-    size_t n = 0;
-    if (patterns) while (*patterns[n]) n++;
-    return n;
-}
-
 static void free_pattern_array(char **pattern) {
     if (!pattern) return;
     for (size_t i = 0; pattern[i]; i++) free(pattern[i]);
