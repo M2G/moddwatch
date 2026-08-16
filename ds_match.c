@@ -242,6 +242,8 @@ static ds_result do_match_with_separator(
     size_t name_idx
 );
 
+static char *build_subpattern(const char *pattern, size_t pat_len) {}
+
 static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
      if (len == 0) return true;
      if (len == 1 && pattern[0] == '*') return DS_MATCH;
@@ -285,7 +287,142 @@ static ds_result do_match_with_separator(
      size_t name_len,
      long doublestar_pattern_backtrack,
      long doublestar_name_backtrack,
+     long star_pattern_backtrack,
+     long star_name_backtrack,
      size_t pat_idx,
      size_t name_idx
      ) {
+     bool start_of_segment = true;
+
+     while (name_idx < name_len) {
+          bool did_continue = false;
+          if (pat_idx < pat_len) {
+               char pc = pattern[pat_idx];
+               if (pc == '*') {
+                    pat_idx++;
+                    if (pat_idx < pat_len && pattern[pat_idx] == '*') {
+                         pat_idx++;
+                         if (start_of_segment) {
+                              if (pat_idx >= pat_len) return DS_MATCH;
+                         }
+                         if (pattern[pat_idx] == SEPARATOR) {
+                              pat_idx++;
+                              doublestar_pattern_backtrack = (long)pat_idx;
+                              doublestar_name_backtrack = (long)name_idx;
+                              star_pattern_backtrack = -1;
+                              star_name_backtrack = -1;
+                              did_continue = true;
+                         }
+                    }
+                    if (!did_continue) {
+                         start_of_segment = false;
+                         star_pattern_backtrack = (long)pat_idx;
+                         star_name_backtrack = (long)name_idx;
+                         did_continue = true;
+                    }
+               }
+               if (pc == '?') {
+                    start_of_segment = false;
+                    char nc = name[name_idx];
+                    if (nc != SEPARATOR) {
+                         pat_idx++;
+                         name_idx++;
+                         did_continue = true;
+                    }
+               }
+               if (pc == '[') {
+                    start_of_segment = false;
+                    pat_idx++;
+                    if (pat_idx >= pat_len) return DS_BAD_PATTERN;
+                    char nc = name[name_idx];
+                    bool matched = false;
+                    bool negate = (pattern[pat_idx] == '!' || pattern[pat_idx] == '^');
+                    if (negate) pat_idx++;
+
+                    if (pat_idx >= pat_len || pattern[pat_idx] == ']') return DS_BAD_PATTERN;
+
+                    int last = -1;
+                    while (pat_idx < pat_len && pattern[pat_idx] != ']') {
+                         char rc = pattern[pat_idx];
+                         pat_idx++;
+
+                         if (last != -1 && rc == '-' && pat_idx < pat_len && pattern[pat_idx] != ']') {
+                              if (pattern[pat_idx] == '\\' && pat_idx + 1 < pat_len) pat_idx++;
+                              char hi = pattern[pat_idx];
+                              pat_idx++;
+                              if ((unsigned char)last <= (unsigned char)nc && (unsigned char)nc <= (unsigned char)hi) {
+                                   matched = true;
+                                   break;
+                              }
+                              last = -1;
+                              continue;
+                         }
+                         char actual_rc = rc;
+                         if (rc == '\\' && pat_idx < pat_len) {
+                             actual_rc = pattern[pat_idx];
+                              pat_idx++;
+                         }
+                         if (actual_rc == nc) {
+                              matched = true;
+                              break;
+                         }
+                         last = (unsigned char)actual_rc;
+                    }
+
+                    if (matched == negate) {
+                         if (pat_idx >= pat_len) return DS_BAD_PATTERN;
+                    } else {
+                         long closing_rel = ds_index_unescaped_byte(pattern + pat_idx, pat_len - pat_idx, ']', true);
+                         if (closing_rel == -1) return DS_BAD_PATTERN;
+                         pat_idx += (size_t)closing_rel + 1;
+                         name_idx++;
+                         did_continue = true;
+                    }
+               }
+               if (pc == '{') {
+                    start_of_segment = false;
+                    size_t before_idx = pat_idx;
+                    pat_idx++;
+
+                    long closing_rel = ds_index_matched_closing_alt(pattern + pat_idx, pat_len - pat_idx, true);
+                    if (closing_rel == -1) return DS_BAD_PATTERN;
+                    size_t closing_idx = pat_idx + (size_t)closing_rel;
+
+                    size_t search_start = pat_idx;
+                    for (;;) {
+                         long comma_rel = ds_index_next_alt(pattern + search_start, closing_idx - search_start, true);
+                         size_t alt_end = (comma_rel == -1) ? closing_idx : search_start + (size_t)comma_rel;
+
+                         size_t alt_len = alt_end - search_start;
+                         size_t tail_len = pat_len - (closing_idx + 1);
+
+
+                         char *substituted_pattern = malloc(alt_len + tail_len + 1);
+                         if (!substituted_pattern) return DS_BAD_PATTERN;
+                         memcpy(substituted_pattern, pattern + before_idx, before_idx);
+                         memcpy(substituted_pattern + before_idx, pattern + search_start, alt_len);
+                         memcpy(substituted_pattern + before_idx + alt_len, pattern + closing_idx + 1, tail_len);
+                         substituted_pattern[before_idx + alt_len + tail_len] = '\0';
+
+                         ds_result r = do_match_with_separator(
+                             substituted_pattern,
+                             before_idx + alt_len + tail_len,
+                             name,
+                             name_len,
+                             doublestar_pattern_backtrack,
+                             doublestar_name_backtrack,
+                             star_pattern_backtrack,
+                             star_name_backtrack,
+                             0,
+                             name_idx
+                         );
+                         free(substituted_pattern);
+
+                         if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
+                         if (comma_rel == -1) break;
+                         search_start = alt_end + 1;
+                    }
+               }
+          }
+     }
 }
