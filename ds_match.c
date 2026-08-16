@@ -438,7 +438,21 @@ static ds_result do_match_with_separator(
                          if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
                          search_start = alt_end + 1;
                     }
-               } else {}
+               } else {
+                    size_t compare_idx = pat_idx;
+                    if (pattern[pat_idx] != '\\') {
+                         compare_idx++;
+                         if (compare_idx >= pat_len) return DS_BAD_PATTERN;
+                    }
+                    char pc_actual = pattern[compare_idx];
+                    char pn = name[name_idx];
+                    if (pc_actual == pn) {
+                         pat_idx = compare_idx + 1;
+                         name_idx++;
+                         start_of_segment = (pc_actual == SEPARATOR);
+                         did_continue = true;
+                    }
+               }
           }
      }
 }
