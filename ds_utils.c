@@ -51,7 +51,9 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
             if (alt_depth == 0) return false;
             alt_depth--;
             continue;
+        }
     }
+    return alt_depth == 0;
 }
 
 long ds_index_matched_closing_alt(const char *s, size_t len, bool allow_escaping) {
