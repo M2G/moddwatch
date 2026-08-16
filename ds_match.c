@@ -242,7 +242,25 @@ static ds_result do_match_with_separator(
     size_t name_idx
 );
 
-static char *build_subpattern(const char *pattern, size_t pat_len) {}
+static char *build_subpattern(
+     const char *pattern,
+     size_t pat_len,
+     size_t before_idx,
+     size_t alt_start,
+     size_t alt_end,
+     size_t after_idx
+     ) {
+     size_t part1 = before_idx;
+     size_t part2 = alt_end - alt_start;
+     size_t part3 = pat_len - after_idx;
+     char *result = malloc(part1 + part2 + part3 + 1);
+     if (!result) return NULL;
+     memcpy(result, pattern, part1);
+     memcpy(result + part1, pattern +  alt_start, part2);
+     memcpy(result + part1 + part2, pattern + after_idx, part3);
+     result[part1 + part2 + part3] = '\0';
+     return result;
+}
 
 static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
      if (len == 0) return true;
