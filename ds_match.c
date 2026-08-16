@@ -472,7 +472,13 @@ static ds_result do_match_with_separator(
                long i = doublestar_name_backtrack;
                while ((size_t)i < name_len && name[i] != SEPARATOR) i++;
                if ((size_t)i < name_len) {
-                    // ...
+                    i++;
+                    doublestar_name_backtrack = i;
+                    name_idx = (size_t)i;
+                    pat_idx = (size_t)doublestar_pattern_backtrack;
+                    star_pattern_backtrack = -1;
+                    star_name_backtrack = -1;
+                    start_of_segment = true;
                     continue;
                }
           }
