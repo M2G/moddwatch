@@ -242,7 +242,7 @@ static ds_result do_match_with_separator(
     size_t name_idx
 );
 
-static char *build_subpattern(
+static char *build_substituted_pattern(
      const char *pattern,
      size_t pat_len,
      size_t before_idx,
@@ -339,7 +339,7 @@ static ds_result do_match_with_separator(
                          did_continue = true;
                     }
                }
-               if (pc == '?') {
+               else if (pc == '?') {
                     start_of_segment = false;
                     char nc = name[name_idx];
                     if (nc != SEPARATOR) {
@@ -348,7 +348,7 @@ static ds_result do_match_with_separator(
                          did_continue = true;
                     }
                }
-               if (pc == '[') {
+               else if (pc == '[') {
                     start_of_segment = false;
                     pat_idx++;
                     if (pat_idx >= pat_len) return DS_BAD_PATTERN;
@@ -397,7 +397,7 @@ static ds_result do_match_with_separator(
                          did_continue = true;
                     }
                }
-               if (pc == '{') {
+               else if (pc == '{') {
                     start_of_segment = false;
                     size_t before_idx = pat_idx;
                     pat_idx++;
@@ -411,36 +411,34 @@ static ds_result do_match_with_separator(
                          long comma_rel = ds_index_next_alt(pattern + search_start, closing_idx - search_start, true);
                          size_t alt_end = (comma_rel == -1) ? closing_idx : search_start + (size_t)comma_rel;
 
-                         size_t alt_len = alt_end - search_start;
-                         size_t tail_len = pat_len - (closing_idx + 1);
+                         char *sub = build_substituted_pattern(
+                                   pattern,
+                                   pat_len,
+                                   before_idx,
+                                   search_start,
+                                   alt_end,
+                                   closing_idx + 1);
 
-
-                         char *substituted_pattern = malloc(alt_len + tail_len + 1);
-                         if (!substituted_pattern) return DS_BAD_PATTERN;
-                         memcpy(substituted_pattern, pattern + before_idx, before_idx);
-                         memcpy(substituted_pattern + before_idx, pattern + search_start, alt_len);
-                         memcpy(substituted_pattern + before_idx + alt_len, pattern + closing_idx + 1, tail_len);
-                         substituted_pattern[before_idx + alt_len + tail_len] = '\0';
+                         if (!sub) return DS_BAD_PATTERN;
 
                          ds_result r = do_match_with_separator(
-                             substituted_pattern,
-                             before_idx + alt_len + tail_len,
-                             name,
-                             name_len,
-                             doublestar_pattern_backtrack,
-                             doublestar_name_backtrack,
-                             star_pattern_backtrack,
-                             star_name_backtrack,
-                             0,
-                             name_idx
-                         );
-                         free(substituted_pattern);
+                                   sub,
+                                   strlen(sub),
+                                   name,
+                                   name_len,
+                                   doublestar_pattern_backtrack,
+                                   doublestar_name_backtrack,
+                                   star_pattern_backtrack,
+                                   star_name_backtrack,
+                                   before_idx,
+                                   name_idx
+                              );
+                         free(sub);
 
                          if (r == DS_MATCH || r == DS_BAD_PATTERN) return r;
-                         if (comma_rel == -1) break;
                          search_start = alt_end + 1;
                     }
-               }
+               } else {}
           }
      }
 }
