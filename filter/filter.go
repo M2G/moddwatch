@@ -1,16 +1,34 @@
 package filter
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/bmatcuk/doublestar/v4"
+	"unsafe"
 )
+// dsMatch calls the C glob engine (ds_match.c), equivalent to
+// doublestar.Match(pattern, path) replaces the
+// ‘github.com/bmatcuk/doublestar/v4’ import from the original filter.go.
+func dsMatch(pattern, path string) (bool, error) {
+    cPattern := C.CString(pattern)
+    defer C.free(unsafe.Pointer(cPattern))
+    cPath := C.CString(path)
+    defer C.free(unsafe.Pointer(cPath))
+
+    switch C.ds_match(cPattern, cPath) {
+        case C.DS_MATCH:
+            return true, nil
+        case C.DS_NO_MATCH:
+            return false, nil
+        default: // C.DS_BAD_PATTERN
+            return false, fmt.Errorf("invalid pattern: %s", pattern)
+    }
+}
 
 // MatchAny checks whether the given path matches any of the specified patterns.
 func MatchAny(path string, patterns []string) (bool, error) {
 	for _, pattern := range patterns {
-		match, err := doublestar.Match(pattern, filepath.ToSlash(path))
+		match, err := dsMatch(pattern, filepath.ToSlash(path))
 		if err != nil {
 			return false, err
 		} else if match {

@@ -489,3 +489,13 @@ static ds_result do_match_with_separator(
 
      return is_zero_length_pattern(pattern + pat_idx, pat_len - pat_idx);
 }
+
+ds_result ds_match(const char *pattern, const char *name) {
+     return do_match_with_separator(
+          pattern,
+          strlen(pattern),
+          name,
+          strlen(name),
+          -1, -1, -1, -1, 0, 0
+          );
+}
