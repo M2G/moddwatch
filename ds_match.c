@@ -294,6 +294,8 @@ static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
           }
           return DS_NO_MATCH;
      }
+     if (!ds_validate_pattern(pattern, len, SEPARATOR)) return DS_BAD_PATTERN;
+     return DS_NO_MATCH;
 }
 
 static ds_result do_match_with_separator(
