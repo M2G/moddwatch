@@ -43,6 +43,14 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
             if (!closed) return false;
             continue;
         }
+        if (c == '{') {
+            alt_depth++;
+            continue;
+        }
+        if (c == '}') {
+            if (alt_depth == 0) return false;
+            alt_depth--;
+            continue;
     }
 }
 
