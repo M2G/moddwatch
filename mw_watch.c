@@ -25,26 +25,43 @@ struct mw_session {
     mw_callback_context ctx;
 };
 
-static void internal_fsw_callback(fsw_event const const* events, const unsigned int event_num, void *data) {
+static const char *relative_to_root(const char *path, const char *root) {
+    size_t root_len = strlen(root);
+    if (strncmp(path, root, root_len) == 0) {
+        if (path[root_len] == '/') return path + root_len + 1;
+        if (path[root_len] == '\0') return "";
+    }
+    return path;
+}
 
+static void internal_fsw_callback(fsw_cevent const* events, const unsigned int event_num, void *data) {
+    mw_callback_context *ctx = (mw_callback_context*)data;
+    for (unsigned int i = 0; i < event_num; i++) {
+        const char *rel = relative_to_root(events[i].path, ctx->root);
+
+        bool created = false, updated = false, removed = false, renamed = false;
+        for (unsigned int j = 0; j < events[i].flags_num; j++) {
+            switch (events[i].flags[j]) {
+                case Created: created = true; break;
+                case Updated: updated = true; break;
+                case Removed: renamed = true; break;
+                case Renamed: renamed = true; break;
+                default: break; // isFile/isDir/Overflow
+            }
+        }
+
+        ctx->user_callback(rel, created, updated, removed, renamed, ctx->user_data);
+    }
 }
 
 static void *monitor_thread_main(void *arg) {
-auto *s = static_cast<mw_session *>(arg);
+ mw_session *s = (mw_session *)arg;
     fsw_start_monitor(s->handle);
-    return nullptr;
-}
-
-static void free_pattern_array(char **pattern) {
-    if (!pattern) return;
-    for (size_t i = 0; pattern[i]; i++) free(pattern[i]);
-    free(pattern);
+    return NULL;
 }
 
 mw_session *mw_session_create(
     const char *root,
-    const char *const *includes,
-    const char *const *excludes,
     double latency_seconds
     ) {
     if (fsw_init_library() != FSW_OK) return NULL;
@@ -72,28 +89,20 @@ mw_session *mw_session_create(
 
     s->handle = h;
     s->root = strdup(root);
-    s->includes = dup_pattern_array(includes);
-    s->excludes = dup_pattern_array(excludes);
 
-    bool includes_ok = !includes || s->includes;
-    bool excludes_ok = !excludes || s->excludes;
-
-    if (!includes_ok || !excludes_ok) {
-        mw_session_destroy(s);
-        free(s->root);
-        free_pattern_array(s->includes);
-        free_pattern_array(s->excludes);
+    if (!s->root) {
+        fsw_destroy_session(h);
         free(s);
         return NULL;
     }
+
+    return s;
 }
 
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
     if (!s || s->thread_running || !cb) return false;
 
     s->ctx.root = s->root;
-    s->ctx.includes = (const char *const *)s->includes_c;
-    s->ctx.excludes = (const char *const *)s->excludes_c;
     s->ctx.user_callback = cb;
     s->ctx.user_data = user_data;
 
@@ -126,7 +135,5 @@ void mw_session_destroy(mw_session *s) {
     mw_session_stop(s);
     fsw_destroy_session(s->handle);
     free(s->root);
-    free_pattern_array(s->includes);
-    free_pattern_array(s->excludes);
     free(s);
 }
