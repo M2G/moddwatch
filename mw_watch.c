@@ -41,22 +41,6 @@ static size_t count_patterns(const char *const *patterns) {
     return n;
 }
 
-// Structure proche de argv_free/argv_split du noyau Linux (lib/argv_split.c)
-static char **dup_pattern_array(const char *const *pattern) {
-    if (!pattern) return NULL;
-    size_t n = count_patterns(pattern);
-    char **copy = calloc(n + 1, sizeof(char *));
-    if (!copy) return NULL;
-    for (size_t i = 0; i < n; i++) {
-        copy[i] = strdup(pattern[i]);
-        if (!copy[i])
-            for (size_t j = i; j < n; j++) free(copy[j]);
-            free(copy);
-            return NULL;
-    }
-    return copy;
-}
-
 static void free_pattern_array(char **pattern) {
     if (!pattern) return;
     for (size_t i = 0; pattern[i]; i++) free(pattern[i]);
