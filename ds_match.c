@@ -277,3 +277,6 @@ static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
           return DS_NO_MATCH;
      }
 }
+
+static ds_result do_match_with_separator(const char *pattern, size_t pat_len, const char *name) {
+}
