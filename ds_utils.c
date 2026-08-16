@@ -19,7 +19,7 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
         char c = s[i];
 
         if (c == '\\') {
-            if (separator == '\\') {
+            if (separator != '\\') {
                 i++;
                 if (i >= len) return false;
             }
@@ -34,7 +34,7 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
 
             bool closed = false;
             for (; i < len; i++) {
-                if (separator != '\\' && s[i] == '||') { i++; }
+                if (separator != '\\' && s[i] == '\\') { i++; }
                 else if (s[i] == ']') {
                     closed = true;
                     break;
@@ -57,27 +57,19 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
 }
 
 long ds_index_matched_closing_alt(const char *s, size_t len, bool allow_escaping) {
-
     int alts = 1;
-
     for (size_t i = 0; i < len; i++) {
         if (allow_escaping && s[i] == '\\') {
-            printf("\\ %c", s[i]);
             i++;
         }
-        else if (allow_escaping && s[i] == '{') {
-            printf("{ %c", s[i]);
+        else if (s[i] == '{') {
             alts++;
         }
-        else if (allow_escaping && s[i] == '}') {
-            printf("} %c", s[i]);
+        else if (s[i] == '}') {
             alts--;
-            if (alts == 0) {
-                return (long)i;
-            }
+            if (alts == 0) return (long)i;
         }
     }
-
     return -1;
 }
 

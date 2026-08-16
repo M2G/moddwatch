@@ -12,7 +12,7 @@
 
 typedef struct {
     const char *root;
-    mv_event_callback user_callback;
+    mw_event_callback user_callback;
     uintptr_t user_data;
 } mw_callback_context;
 
@@ -68,23 +68,27 @@ mw_session *mw_session_create(
     FSW_HANDLE h = fsw_init_session(system_default_monitor_type);
     if (h == (FSW_HANDLE)FSW_INVALID_HANDLE) return NULL;
 
-    if (fsw_add_path(h, root) != FSW_OK)
+    if (fsw_add_path(h, root) != FSW_OK) {
         fsw_destroy_session(h);
         return NULL;
+    }
 
-    if (fsw_set_recursive(h, true) != FSW_OK)
+    if (fsw_set_recursive(h, true) != FSW_OK) {
         fsw_destroy_session(h);
         return NULL;
+    }
 
-    if (latency_seconds > 0.0 && fsw_set_latency(h, latency_seconds) != FSW_OK)
+    if (latency_seconds > 0.0 && fsw_set_latency(h, latency_seconds) != FSW_OK) {
         fsw_destroy_session(h);
         return NULL;
+    }
 
     // init session
     mw_session *s = calloc(1, sizeof(mw_session));
-    if (!s)
+    if (!s) {
         fsw_destroy_session(h);
         return NULL;
+    }
 
     s->handle = h;
     s->root = strdup(root);
@@ -98,7 +102,7 @@ mw_session *mw_session_create(
     return s;
 }
 
-bool mw_session_start(mw_session *s, mv_event_callback cb, uintptr_t user_data) {
+bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
     if (!s || s->thread_running || !cb) return false;
 
     s->ctx.root = s->root;
@@ -112,8 +116,7 @@ bool mw_session_start(mw_session *s, mv_event_callback cb, uintptr_t user_data) 
         return false;
 
     int guard = 0;
-
-    while (!s->thread_running && guard < 200000) {
+    while (!fsw_is_running(s->handle) && guard < 200000) {
         sched_yield(); // @TODO err check
         guard++;
     }
