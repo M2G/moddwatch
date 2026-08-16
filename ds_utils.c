@@ -14,9 +14,19 @@ long ds_index_unescaped_byte(const char *s, size_t len, char c, bool allow_escap
 }
 
 bool ds_validate_pattern(const char *s, size_t len, char separator) {
-    // ...
     int alt_depth = 0;
-    for (size_t i = 0; i < len; i++) {}
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+
+        if (c == '\\') {
+            if (separator == '\\') {
+                i++;
+                if (i >= len) return false;
+            }
+            continue;
+        }
+
+    }
 }
 
 long ds_index_matched_closing_alt(const char *s, size_t len, bool allow_escaping) {
