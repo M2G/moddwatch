@@ -26,6 +26,23 @@ bool ds_validate_pattern(const char *s, size_t len, char separator) {
             continue;
         }
 
+        if (c == '[') {
+            i++;
+            if (i >= len) return false;
+            if (s[i] == '!' || s[i] == '^') i++;
+            if (i >= len || s[i] == ']') return false;
+
+            bool closed = false;
+            for (; i < len; i++) {
+                if (separator != '\\' && s[i] == '||') { i++; }
+                else if (s[i] == ']') {
+                    closed = true;
+                    break;
+                }
+            }
+            if (!closed) return false;
+            continue;
+        }
     }
 }
 
