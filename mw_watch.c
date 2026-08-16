@@ -1,16 +1,17 @@
 #define _POSIX_C_SOURCE 200809L
 #include "mw_watch.h"
-// #include "filter.h"
 #include <libfswatch/c/libfswatch.h>
 #include <pthread.h>
-#include <stdio.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef FSW_INVALID_HANDLE
+#define FSW_INVALID_HANDLE ((FSW_HANDLE)-1)
+#endif
+
 typedef struct {
     const char *root;
-    const char *includes;
-    const char *excludes;
     mv_event_callback user_callback;
     uintptr_t user_data;
 } mw_callback_context;
@@ -18,8 +19,6 @@ typedef struct {
 struct mw_session {
     FSW_HANDLE handle;
     char *root;
-    char **includes;
-    char **excludes;
     pthread_t thread;
     bool thread_running;
     mw_callback_context ctx;
@@ -35,7 +34,7 @@ static const char *relative_to_root(const char *path, const char *root) {
 }
 
 static void internal_fsw_callback(fsw_cevent const* events, const unsigned int event_num, void *data) {
-    mw_callback_context *ctx = (mw_callback_context*)data;
+    mw_callback_context *ctx = (mw_callback_context *)data;
     for (unsigned int i = 0; i < event_num; i++) {
         const char *rel = relative_to_root(events[i].path, ctx->root);
 
@@ -44,7 +43,7 @@ static void internal_fsw_callback(fsw_cevent const* events, const unsigned int e
             switch (events[i].flags[j]) {
                 case Created: created = true; break;
                 case Updated: updated = true; break;
-                case Removed: renamed = true; break;
+                case Removed: removed = true; break;
                 case Renamed: renamed = true; break;
                 default: break; // isFile/isDir/Overflow
             }
@@ -99,7 +98,7 @@ mw_session *mw_session_create(
     return s;
 }
 
-bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
+bool mw_session_start(mw_session *s, mv_event_callback cb, uintptr_t user_data) {
     if (!s || s->thread_running || !cb) return false;
 
     s->ctx.root = s->root;

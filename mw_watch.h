@@ -1,3 +1,6 @@
+#ifndef MW_WATCH_H
+#define MW_WATCH_H
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -12,3 +15,5 @@ bool mw_session_start(mw_session *s, mv_event_callback cb, uintptr_t user_data);
 void mw_session_stop(mw_session *s);
 
 void mw_session_destroy(mw_session *s);
+
+#endif
