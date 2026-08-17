@@ -3,7 +3,8 @@ package moddwatch
 /*
 #cgo darwin CFLAGS: -I/opt/homebrew/include -I/usr/local/include
 #cgo darwin LDFLAGS: -L/opt/homebrew/lib -L/usr/local/lib -lfswatch -lpthread
-#cgo linux LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch
+#cgo linux CFLAGS: -I/usr/local/include
+#cgo linux LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -L/usr/local/lib -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch -Wl,-rpath,/usr/local/lib
 #include "mw_watch.h"
 #include "cshim.h"
 #include <stdlib.h>
@@ -24,6 +25,10 @@ import (
 
 	"github.com/M2G/moddwatch/filter"
 )
+
+// MaxLullWait is the maximum time to wait for a lull. This only kicks in if
+// we've had a constant stream of modifications blocking us.
+const MaxLullWait = time.Second * 8
 
 // isUnder takes two absolute paths, and returns true if child is under parent.
 func isUnder(parent string, child string) bool {
@@ -232,15 +237,23 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 	return newincludes, bases
 }
 
+type rawEvent struct {
+	kind      string // "added", "changed", "deleted"
+	cleanpath string
+	abspath   string
+}
+
 // Watcher is a handle that allows a Watch to be terminated
 type Watcher struct {
 	session  *C.mw_session
 	handle   cgo.Handle
 	modch    chan *Mod
+	rawch    chan rawEvent
 	closed   bool
 	includes []string
 	excludes []string
 	known    map[string]bool
+	lullTime time.Duration
 
 	sync.Mutex
 }
@@ -280,6 +293,7 @@ func (w *Watcher) Stop() {
 		C.mw_session_stop(w.session)
 		C.mw_session_destroy(w.session)
 		w.handle.Delete()
+		close(w.rawch)
 		close(w.modch)
 		w.closed = true
 	}
@@ -299,42 +313,139 @@ func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, 
 		return
 	}
 
-	m := &Mod{}
+	var kind string
 	switch {
 	case created != 0:
 		if w.isKnown(cleanpath) {
-			m.Changed = []string{cleanpath}
+			kind = "changed"
 		} else {
-			m.Added = []string{cleanpath}
+			kind = "added"
 			w.markKnown(cleanpath)
 		}
 	case updated != 0:
-		m.Changed = []string{cleanpath}
+		kind = "changed"
 		w.markKnown(cleanpath)
 	case removed != 0:
-		m.Deleted = []string{cleanpath}
+		kind = "deleted"
 		w.markUnknown(cleanpath)
 	case renamed != 0:
 		if _, err := os.Stat(path); err == nil {
-			m.Added = []string{cleanpath}
+			kind = "added"
 			w.markKnown(cleanpath)
 		} else {
-			m.Deleted = []string{cleanpath}
+			kind = "deleted"
 			w.markUnknown(cleanpath)
 		}
 	default:
 		return
 	}
-	w.send(m)
+
+	w.Lock()
+	if !w.closed {
+		w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: path}
+	}
+	w.Unlock()
+}
+
+func pathExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+func keysFromPathMap(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// resolveBatch turns a set of raw, accumulated per-category changes into a
+// single Mod, resolving inconsistencies (e.g. a path both added and removed
+// within the same lull window) against the file's actual current state on
+// disk - the same principle mkmod applied in the original implementation.
+func resolveBatch(added, removed, changed map[string]string) Mod {
+	for k, abspath := range added {
+		if pathExists(abspath) {
+			delete(changed, k)
+			delete(removed, k)
+		} else {
+			delete(added, k)
+			delete(removed, k)
+			delete(changed, k)
+		}
+	}
+	for k, abspath := range removed {
+		if pathExists(abspath) {
+			delete(removed, k)
+		} else {
+			delete(added, k)
+			delete(changed, k)
+		}
+	}
+	return Mod{
+		Added:   keysFromPathMap(added),
+		Changed: keysFromPathMap(changed),
+		Deleted: keysFromPathMap(removed),
+	}
+}
+
+// batchLoop accumulates raw events from rawch until there is a lull in the
+// stream of changes of duration lullTime (or MaxLullWait is reached under a
+// constant stream of modifications), then emits a single merged Mod on
+// modch. This mirrors the batching behaviour of the original notify-based
+// implementation, adapted to fswatch's per-event CGo callback delivery.
+func (w *Watcher) batchLoop() {
+	added := make(map[string]string)
+	removed := make(map[string]string)
+	changed := make(map[string]string)
+	hadLullMod := false
+
+	flush := func() {
+		if m := resolveBatch(added, removed, changed); !m.Empty() {
+			w.send(&m)
+		}
+		added = make(map[string]string)
+		removed = make(map[string]string)
+		changed = make(map[string]string)
+	}
+
+	for {
+		select {
+		case evt, more := <-w.rawch:
+			if !more {
+				return
+			}
+			hadLullMod = true
+			switch evt.kind {
+			case "added":
+				added[evt.cleanpath] = evt.abspath
+			case "changed":
+				changed[evt.cleanpath] = evt.abspath
+			case "deleted":
+				removed[evt.cleanpath] = evt.abspath
+			}
+		case <-time.After(w.lullTime):
+			if !hadLullMod {
+				flush()
+				continue
+			}
+			hadLullMod = false
+		case <-time.After(MaxLullWait):
+			flush()
+		}
+	}
 }
 
 // Watch watches a set of include and exclude patterns relative to a given root.
 // Mod structs representing discrete changesets are sent on the channel ch.
 //
-// Unlike the original notify-based implementation, each fswatch event is sent
-// as its own distinct *Mod rather than batched over a lull period - fswatch
-// has its own internal debounce (lullTime is converted to seconds and passed
-// to fsw_set_latency). Watch keeps track of paths already known to exist so a
+// Watch applies heuristics to cope with transient files and unreliable event
+// notifications. Modifications are batched up until there is a lull in the
+// stream of changes of duration lullTime. This lets us represent processes
+// that progressively affect multiple files, like rendering, as a single
+// changeset. Watch also keeps track of paths already known to exist so a
 // Created event on an already-known path (a quirk of some platforms, notably
 // FSEvents on macOS) is reported as Changed instead of Added.
 //
@@ -384,8 +495,17 @@ func Watch(
 		return nil, fmt.Errorf("could not create fswatch session for root '%s'", root)
 	}
 
-	w := &Watcher{session: session, modch: ch, includes: newincludes, excludes: excludes, known: known}
+	w := &Watcher{
+		session:  session,
+		modch:    ch,
+		rawch:    make(chan rawEvent, 4096),
+		includes: newincludes,
+		excludes: excludes,
+		known:    known,
+		lullTime: lullTime,
+	}
 	w.handle = cgo.NewHandle(w)
+	go w.batchLoop()
 
 	ok := C.mw_session_start(
 		session,
