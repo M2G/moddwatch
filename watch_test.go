@@ -2,46 +2,30 @@ package moddwatch
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/go-cmp/cmp"
 )
 
-var alwaysEqual = cmp.Comparer(func(_, _ interface{}) bool { return true })
-var cmpOptions = cmp.Options{
-	cmp.FilterValues(
-		func(x, y interface{}) bool {
-			vx, vy := reflect.ValueOf(x), reflect.ValueOf(y)
-			return (vx.IsValid() && vy.IsValid() &&
-				vx.Type() == vy.Type()) &&
-				(vx.Kind() == reflect.Slice || vx.Kind() == reflect.Map) &&
-				(vx.Len() == 0 && vy.Len() == 0)
-		},
-		alwaysEqual,
-	),
-	cmp.FilterPath(
-		func(p cmp.Path) bool {
-			if p.String() == "URL.RawQuery" {
-				return true
-			}
-			return false
-		},
-		cmp.Comparer(func(a, b interface{}) bool {
-			qa, _ := url.ParseQuery(a.(string))
-			qb, _ := url.ParseQuery(b.(string))
-			return cmp.Equal(qa, qb)
-		}),
-	),
+// modsEqual compares two Mod values field by field. slices.Equal already
+// treats a nil slice and an empty slice as equal, so no extra normalisation
+// is needed (unlike reflect.DeepEqual, which would treat them as different).
+func modsEqual(a, b Mod) bool {
+	return slices.Equal(a.Changed, b.Changed) &&
+		slices.Equal(a.Deleted, b.Deleted) &&
+		slices.Equal(a.Added, b.Added)
 }
 
+// WithTempDir creates a temp directory, changes the current working directory
+// to it, and returns a function that can be called to clean up. Use it like
+// this:
+//      defer WithTempDir(t)()
 func WithTempDir(t *testing.T) func() {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -450,6 +434,10 @@ func _testWatch(
 		watcher.Stop()
 	}()
 
+	// There's some initial startup latency between the fswatch session
+	// becoming active and events actually being delivered. If we don't wait
+	// a bit here, we sometimes don't receive notifications for the initial
+	// event.
 	go func() {
 		touch("a/initial")
 	}()
@@ -459,7 +447,7 @@ func _testWatch(
 			t.Errorf("Never saw initial sync event")
 			return
 		}
-		if cmp.Equal(evt.Added, []string{"a/initial"}) {
+		if slices.Equal(evt.Added, []string{"a/initial"}) {
 			break
 		}
 	}
@@ -470,7 +458,7 @@ func _testWatch(
 		evt, more := <-ch
 		if more {
 			ret = ret.Join(*evt)
-			if cmp.Equal(ret, expected, cmpOptions) {
+			if modsEqual(ret, expected) {
 				watcher.Stop()
 				return
 			}
@@ -535,6 +523,10 @@ func TestWatch(t *testing.T) {
 	t.Run(
 		"deepdirect",
 		func(t *testing.T) {
+			// On Linux, We can't currently pick up changes within directories
+			// created after the watch started. See here for more:
+			//
+			// https://github.com/cortesi/modd/issues/44
 			if runtime.GOOS != "linux" {
 				_testWatch(
 					t,
