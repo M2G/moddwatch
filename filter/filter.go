@@ -1,7 +1,7 @@
 package filter
 
 /*
-#include "../ds_match.h"
+#include "ds_match.h"
 #include <stdlib.h>
 */
 import "C"
