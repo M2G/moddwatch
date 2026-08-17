@@ -1,5 +1,11 @@
 package filter
 
+/*
+#include "../ds_match.h"
+#include <stdlib.h>
+*/
+import "C"
+
 import (
 	"fmt"
 	"path/filepath"

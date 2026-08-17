@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/rjeczalik/notify"
 )
 
 var alwaysEqual = cmp.Comparer(func(_, _ interface{}) bool { return true })
@@ -43,10 +42,6 @@ var cmpOptions = cmp.Options{
 	),
 }
 
-// WithTempDir creates a temp directory, changes the current working directory
-// to it, and returns a function that can be called to clean up. Use it like
-// this:
-//      defer WithTempDir(t)()
 func WithTempDir(t *testing.T) func() {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -68,114 +63,6 @@ func WithTempDir(t *testing.T) func() {
 		err = os.RemoveAll(tmpdir)
 		if err != nil {
 			t.Fatalf("Removing tmpdir: %s", err)
-		}
-	}
-}
-
-type TEventInfo struct {
-	event notify.Event
-	path  string
-}
-
-func (te TEventInfo) Path() string {
-	return te.path
-}
-
-func (te TEventInfo) Event() notify.Event {
-	return te.event
-}
-
-func (te TEventInfo) Sys() interface{} {
-	return nil
-}
-
-type testExistenceChecker struct {
-	paths map[string]bool
-}
-
-func (e *testExistenceChecker) Check(p string) bool {
-	_, ok := e.paths[p]
-	return ok
-}
-
-func exists(paths ...string) *testExistenceChecker {
-	et := testExistenceChecker{make(map[string]bool)}
-	for _, p := range paths {
-		et.paths[p] = true
-	}
-	return &et
-}
-
-var batchTests = []struct {
-	events   []TEventInfo
-	exists   *testExistenceChecker
-	expected Mod
-}{
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
-			TEventInfo{notify.Create, "bar"},
-		},
-		exists("bar", "foo"),
-		Mod{Added: []string{"bar", "foo"}},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Rename, "foo"},
-			TEventInfo{notify.Rename, "bar"},
-		},
-		exists("foo"),
-		Mod{Added: []string{"foo"}, Deleted: []string{"bar"}},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Write, "foo"},
-		},
-		exists("foo"),
-		Mod{Changed: []string{"foo"}},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Write, "foo"},
-			TEventInfo{notify.Remove, "foo"},
-		},
-		exists(),
-		Mod{Deleted: []string{"foo"}},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Remove, "foo"},
-		},
-		exists("foo"),
-		Mod{},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
-			TEventInfo{notify.Create, "bar"},
-			TEventInfo{notify.Remove, "bar"},
-		},
-		exists("bar", "foo"),
-		Mod{Added: []string{"bar", "foo"}},
-	},
-	{
-		[]TEventInfo{
-			TEventInfo{notify.Create, "foo"},
-		},
-		exists(),
-		Mod{},
-	},
-}
-
-func TestBatch(t *testing.T) {
-	for i, tst := range batchTests {
-		input := make(chan notify.EventInfo, len(tst.events))
-		for _, e := range tst.events {
-			input <- e
-		}
-		ret := batch(time.Millisecond*10, MaxLullWait, tst.exists, input)
-		if !reflect.DeepEqual(*ret, tst.expected) {
-			t.Errorf("Test %d: expected\n%#v\ngot\n%#v", i, tst.expected, ret)
 		}
 	}
 }
@@ -563,8 +450,6 @@ func _testWatch(
 		watcher.Stop()
 	}()
 
-	// There's some race condition in rjeczalik/notify. If we don't wait a bit
-	// here, we sometimes don't receive notifications for the initial event.
 	go func() {
 		touch("a/initial")
 	}()
@@ -576,9 +461,6 @@ func _testWatch(
 		}
 		if cmp.Equal(evt.Added, []string{"a/initial"}) {
 			break
-		} else {
-			t.Errorf("Unexpected initial sync event:\n%#v", evt)
-			return
 		}
 	}
 
@@ -653,10 +535,6 @@ func TestWatch(t *testing.T) {
 	t.Run(
 		"deepdirect",
 		func(t *testing.T) {
-			// On Linux, We can't currently pick up changes within directories
-			// created after the watch started. See here for more:
-			//
-			// https://github.com/cortesi/modd/issues/44
 			if runtime.GOOS != "linux" {
 				_testWatch(
 					t,

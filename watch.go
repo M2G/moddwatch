@@ -1,11 +1,11 @@
 package moddwatch
 
 /*
-#cgo LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch
+#cgo darwin CFLAGS: -I/opt/homebrew/include -I/usr/local/include
+#cgo darwin LDFLAGS: -L/opt/homebrew/lib -L/usr/local/lib -lfswatch -lpthread
+#cgo linux LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch
 #include "mw_watch.h"
 #include "cshim.h"
-#include "filter.h"
-#include "ds_utils.h"
 #include <stdlib.h>
 */
 import "C"
@@ -15,18 +15,15 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime/cgo"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
-	"github.com/cortesi/moddwatch/filter"
-	"github.com/rjeczalik/notify"
+	"moddwatch/filter"
 )
-
-// MaxLullWait is the maximum time to wait for a lull. This only kicks in if
-// we've had a constant stream of modifications blocking us.
-const MaxLullWait = time.Second * 8
 
 // isUnder takes two absolute paths, and returns true if child is under parent.
 func isUnder(parent string, child string) bool {
@@ -59,21 +56,6 @@ func normPaths(root string, abspaths []string) ([]string, error) {
 		ret[i] = filepath.ToSlash(norm)
 	}
 	return ret, nil
-}
-
-// An existenceChecker checks the existence of a file
-type existenceChecker interface {
-	Check(p string) bool
-}
-
-type statExistenceChecker struct{}
-
-func (sc statExistenceChecker) Check(p string) bool {
-	fi, err := os.Stat(p)
-	if err == nil && !fi.IsDir() {
-		return true
-	}
-	return false
 }
 
 // Mod encapsulates a set of changes
@@ -186,134 +168,6 @@ func _keys(m map[string]bool) []string {
 	return keys
 }
 
-type fset map[string]bool
-
-func mkmod(exists existenceChecker, added fset, removed fset, changed fset, renamed fset) Mod {
-	ret := Mod{}
-	for k := range renamed {
-		// If a file is moved from A to B, we'll get separate rename
-		// events for both A and B. The only way to know if it was the
-		// source or destination is to check if the file exists.
-		if exists.Check(k) {
-			added[k] = true
-		} else {
-			removed[k] = true
-		}
-	}
-	for k := range added {
-		if exists.Check(k) {
-			// If a file exists, and has been both added and
-			// changed, we just mark it as added
-			delete(changed, k)
-			delete(removed, k)
-		} else {
-			// If a file has been added, and now does not exist, we
-			// strike it everywhere. This probably means the file is
-			// transient - i.e. has been quickly added and removed, or
-			// we've just not recieved a removal notification.
-			delete(added, k)
-			delete(removed, k)
-			delete(changed, k)
-		}
-	}
-	for k := range removed {
-		if exists.Check(k) {
-			delete(removed, k)
-		} else {
-			delete(added, k)
-			delete(changed, k)
-		}
-	}
-	ret.Added = _keys(added)
-	ret.Changed = _keys(changed)
-	ret.Deleted = _keys(removed)
-	return ret
-
-}
-
-// This function batches events up, and emits just a list of paths for files
-// considered changed. It applies some heuristics to deal with short-lived
-// temporary files and unreliable filesystem events. There are all sorts of
-// challenges here, that mean we can only do a mediocre job as it stands.
-//
-// - There's no cross-platform way to get the source as well as the destination
-// for Rename events.
-// - Events can arrive out of order - i.e. we can get a removal event first
-// then a creation event for a transient file.
-// - Events seem to be unreliable on some platforms - i.e. we might get a
-// removal event but never see a creation event.
-// - Events appear nonsensical on some platforms - i.e. we sometimes get a
-// Create event as well as a Remove event when a pre-existing file is removed.
-//
-// In the face of all this, all we can do is layer on a set of heuristics to
-// try to get intuitive results.
-func batch(lullTime time.Duration, maxTime time.Duration, exists existenceChecker, ch chan notify.EventInfo) *Mod {
-	added := make(map[string]bool)
-	removed := make(map[string]bool)
-	changed := make(map[string]bool)
-	renamed := make(map[string]bool)
-	// Have we had a modification in the last lull
-	hadLullMod := false
-	for {
-		select {
-		case evt := <-ch:
-			if evt == nil {
-				return nil
-			}
-			hadLullMod = true
-			switch evt.Event() {
-			case notify.Create:
-				added[evt.Path()] = true
-			case notify.Remove:
-				removed[evt.Path()] = true
-			case notify.Write:
-				changed[evt.Path()] = true
-			case notify.Rename:
-				renamed[evt.Path()] = true
-			}
-		case <-time.After(lullTime):
-			// Have we had a lull?
-			if hadLullMod == false {
-				m := mkmod(exists, added, removed, changed, renamed)
-				return &m
-			}
-			hadLullMod = false
-		case <-time.After(maxTime):
-			m := mkmod(exists, added, removed, changed, renamed)
-			return &m
-		}
-	}
-}
-
-// Watcher is a handle that allows a Watch to be terminated
-type Watcher struct {
-	evtch  chan notify.EventInfo
-	modch  chan *Mod
-	closed bool
-
-	sync.Mutex
-}
-
-func (w *Watcher) send(m *Mod) {
-	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		w.modch <- m
-	}
-}
-
-// Stop watching, and close the channel passed to watch. This function can
-// safely be called concurrently.
-func (w *Watcher) Stop() {
-	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		notify.Stop(w.evtch)
-		close(w.modch)
-		w.closed = true
-	}
-}
-
 // Find the nearest enclosing directory
 func enclosingDir(path string) string {
 	for {
@@ -360,8 +214,8 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 					newincludes[i] = bdir
 				}
 			} else {
-				// Case 2: The file exists and is nota symlink, so we leave bdir
-				// unmodified.
+				// Case 2: The file exists and is not a symlink, so we leave
+				// bdir unmodified.
 				bdir = enclosingDir(bdir)
 				if bdir == "" {
 					bdir = root
@@ -378,13 +232,111 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 	return newincludes, bases
 }
 
+// Watcher is a handle that allows a Watch to be terminated
+type Watcher struct {
+	session  *C.mw_session
+	handle   cgo.Handle
+	modch    chan *Mod
+	closed   bool
+	includes []string
+	excludes []string
+	known    map[string]bool
+
+	sync.Mutex
+}
+
+func (w *Watcher) isKnown(p string) bool {
+	w.Lock()
+	defer w.Unlock()
+	return w.known[p]
+}
+
+func (w *Watcher) markKnown(p string) {
+	w.Lock()
+	defer w.Unlock()
+	w.known[p] = true
+}
+
+func (w *Watcher) markUnknown(p string) {
+	w.Lock()
+	defer w.Unlock()
+	delete(w.known, p)
+}
+
+func (w *Watcher) send(m *Mod) {
+	w.Lock()
+	defer w.Unlock()
+	if !w.closed {
+		w.modch <- m
+	}
+}
+
+// Stop watching, and close the channel passed to watch. This function can
+// safely be called concurrently.
+func (w *Watcher) Stop() {
+	w.Lock()
+	defer w.Unlock()
+	if !w.closed {
+		C.mw_session_stop(w.session)
+		C.mw_session_destroy(w.session)
+		w.handle.Delete()
+		close(w.modch)
+		w.closed = true
+	}
+}
+
+//export goEventTrampoline
+func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, userData C.uintptr_t) {
+	h := cgo.Handle(userData)
+	w, ok := h.Value().(*Watcher)
+	if !ok {
+		return
+	}
+	path := C.GoString(cpath)
+
+	cleanpath, err := filter.File(path, w.includes, w.excludes)
+	if err != nil || cleanpath == "" {
+		return
+	}
+
+	m := &Mod{}
+	switch {
+	case created != 0:
+		if w.isKnown(cleanpath) {
+			m.Changed = []string{cleanpath}
+		} else {
+			m.Added = []string{cleanpath}
+			w.markKnown(cleanpath)
+		}
+	case updated != 0:
+		m.Changed = []string{cleanpath}
+		w.markKnown(cleanpath)
+	case removed != 0:
+		m.Deleted = []string{cleanpath}
+		w.markUnknown(cleanpath)
+	case renamed != 0:
+		if _, err := os.Stat(path); err == nil {
+			m.Added = []string{cleanpath}
+			w.markKnown(cleanpath)
+		} else {
+			m.Deleted = []string{cleanpath}
+			w.markUnknown(cleanpath)
+		}
+	default:
+		return
+	}
+	w.send(m)
+}
+
 // Watch watches a set of include and exclude patterns relative to a given root.
 // Mod structs representing discrete changesets are sent on the channel ch.
 //
-// Watch applies heuristics to cope with transient files and unreliable event
-// notifications. Modifications are batched up until there is a a lull in the
-// stream of changes of duration lullTime. This lets us represent processes that
-// progressively affect multiple files, like rendering, as a single changeset.
+// Unlike the original notify-based implementation, each fswatch event is sent
+// as its own distinct *Mod rather than batched over a lull period - fswatch
+// has its own internal debounce (lullTime is converted to seconds and passed
+// to fsw_set_latency). Watch keeps track of paths already known to exist so a
+// Created event on an already-known path (a quirk of some platforms, notably
+// FSEvents on macOS) is reported as Changed instead of Added.
 //
 // All paths emitted are slash-delimited and normalised. If a path lies under
 // the specified root, it is converted to a path relative to the root, otherwise
@@ -412,38 +364,40 @@ func Watch(
 	lullTime time.Duration,
 	ch chan *Mod,
 ) (*Watcher, error) {
-	evtch := make(chan notify.EventInfo, 4096)
-	newincludes, paths := baseDirs(root, includes)
-	for _, p := range paths {
-		err := notify.Watch(filepath.Join(p, "..."), evtch, notify.All)
-		if err != nil {
-			notify.Stop(evtch)
-			return nil, fmt.Errorf("could not watch path '%s': %s", p, err)
-		}
+	newincludes, _ := baseDirs(root, includes)
+
+	initial, err := List(root, includes, excludes)
+	if err != nil {
+		return nil, fmt.Errorf("could not list initial files for root '%s': %s", root, err)
 	}
-	w := &Watcher{evtch: evtch, modch: ch}
-	go func() {
-		for {
-			b := batch(lullTime, MaxLullWait, statExistenceChecker{}, evtch)
-			if b == nil {
-				return
-			} else if !b.Empty() {
-				b, err := b.normPaths(root)
-				if err != nil {
-					// FIXME: Do something more decisive
-					continue
-				}
-				b, err = b.Filter(root, newincludes, excludes)
-				if err != nil {
-					// FIXME: Do something more decisive
-					continue
-				}
-				if !b.Empty() {
-					w.send(b)
-				}
-			}
-		}
-	}()
+	known := make(map[string]bool, len(initial))
+	for _, p := range initial {
+		known[p] = true
+	}
+
+	cRoot := C.CString(root)
+	defer C.free(unsafe.Pointer(cRoot))
+
+	latencySeconds := lullTime.Seconds()
+	session := C.mw_session_create(cRoot, C.double(latencySeconds))
+	if session == nil {
+		return nil, fmt.Errorf("could not create fswatch session for root '%s'", root)
+	}
+
+	w := &Watcher{session: session, modch: ch, includes: newincludes, excludes: excludes, known: known}
+	w.handle = cgo.NewHandle(w)
+
+	ok := C.mw_session_start(
+		session,
+		(C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
+		C.uintptr_t(w.handle),
+	)
+	if !bool(ok) {
+		w.handle.Delete()
+		C.mw_session_destroy(session)
+		return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
+	}
+
 	return w, nil
 }
 
@@ -477,7 +431,6 @@ func List(root string, includePatterns []string, excludePatterns []string) ([]st
 				}
 				if d.IsDir() {
 					m, err := filter.MatchAny(p, excludePatterns)
-					// We skip the dir only if it's explicitly excluded
 					if err != nil && !m {
 						return filepath.SkipDir
 					}
