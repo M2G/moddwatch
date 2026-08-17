@@ -22,7 +22,7 @@ import (
 	"time"
 	"unsafe"
 
-	"moddwatch/filter"
+	"github.com/M2G/moddwatch/filter"
 )
 
 // isUnder takes two absolute paths, and returns true if child is under parent.
