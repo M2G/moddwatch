@@ -247,6 +247,7 @@ type Watcher struct {
 	excludes []string
 	known    map[string]bool
 	lullTime time.Duration
+	root     string
 
 	sync.Mutex
 }
@@ -302,45 +303,46 @@ func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, 
 	if !ok {
 		return
 	}
-	path := C.GoString(cpath)
+    path := C.GoString(cpath)
+    abspath := filepath.Join(w.root, path)
 
-	cleanpath, err := filter.File(path, w.includes, w.excludes)
-	if err != nil || cleanpath == "" {
-		return
-	}
+    cleanpath, err := filter.File(path, w.includes, w.excludes)
+    if err != nil || cleanpath == "" {
+        return
+    }
 
-	var kind string
-	switch {
-	case created != 0:
-		if w.isKnown(cleanpath) {
-			kind = "changed"
-		} else {
-			kind = "added"
-			w.markKnown(cleanpath)
-		}
-	case updated != 0:
-		kind = "changed"
-		w.markKnown(cleanpath)
-	case removed != 0:
-		kind = "deleted"
-		w.markUnknown(cleanpath)
-	case renamed != 0:
-		if _, err := os.Stat(path); err == nil {
-			kind = "added"
-			w.markKnown(cleanpath)
-		} else {
-			kind = "deleted"
-			w.markUnknown(cleanpath)
-		}
-	default:
-		return
-	}
+    var kind string
+    switch {
+    case created != 0:
+        if w.isKnown(cleanpath) {
+            kind = "changed"
+        } else {
+            kind = "added"
+            w.markKnown(cleanpath)
+        }
+    case updated != 0:
+        kind = "changed"
+        w.markKnown(cleanpath)
+    case removed != 0:
+        kind = "deleted"
+        w.markUnknown(cleanpath)
+    case renamed != 0:
+        if _, err := os.Stat(abspath); err == nil {
+            kind = "added"
+            w.markKnown(cleanpath)
+        } else {
+            kind = "deleted"
+            w.markUnknown(cleanpath)
+        }
+    default:
+        return
+    }
 
-	w.Lock()
-	if !w.closed {
-		w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: path}
-	}
-	w.Unlock()
+    w.Lock()
+    if !w.closed {
+        w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: abspath}
+    }
+    w.Unlock()
 }
 
 func pathExists(p string) bool {
@@ -499,6 +501,7 @@ func Watch(
         excludes: excludes,
         known:    known,
         lullTime: lullTime,
+        root:     root,
     }
     w.handle = cgo.NewHandle(w)
 
