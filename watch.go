@@ -491,30 +491,30 @@ func Watch(
 		return nil, fmt.Errorf("could not create fswatch session for root '%s'", root)
 	}
 
-	w := &Watcher{
-		session:  session,
-		modch:    ch,
-		rawch:    make(chan rawEvent, 4096),
-		includes: newincludes,
-		excludes: excludes,
-		known:    known,
-		lullTime: lullTime,
-	}
-	w.handle = cgo.NewHandle(w)
-	go w.batchLoop()
+    w := &Watcher{
+        session:  session,
+        modch:    ch,
+        rawch:    make(chan rawEvent, 4096),
+        includes: newincludes,
+        excludes: excludes,
+        known:    known,
+        lullTime: lullTime,
+    }
+    w.handle = cgo.NewHandle(w)
 
-	ok := C.mw_session_start(
-		session,
-		(C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
-		C.uintptr_t(w.handle),
-	)
-	if !bool(ok) {
-		w.handle.Delete()
-		C.mw_session_destroy(session)
-		return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
-	}
+    ok := C.mw_session_start(
+        session,
+        (C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
+        C.uintptr_t(w.handle),
+    )
+    if !bool(ok) {
+        w.handle.Delete()
+        C.mw_session_destroy(session)
+        return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
+    }
 
-	return w, nil
+    go w.batchLoop()
+    return w, nil
 }
 
 // List all files under the root that match the specified patterns. The file
