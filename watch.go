@@ -281,15 +281,18 @@ func (w *Watcher) send(m *Mod) {
 // safely be called concurrently.
 func (w *Watcher) Stop() {
 	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		C.mw_session_stop(w.session)
-		C.mw_session_destroy(w.session)
-		w.handle.Delete()
-		close(w.rawch)
-		close(w.modch)
-		w.closed = true
+	if w.closed {
+		w.Unlock()
+		return
 	}
+	w.closed = true
+	w.Unlock()
+
+	C.mw_session_stop(w.session)
+	C.mw_session_destroy(w.session)
+	w.handle.Delete()
+	close(w.rawch)
+	close(w.modch)
 }
 
 //export goEventTrampoline
