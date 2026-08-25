@@ -200,38 +200,31 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 		if !filepath.IsAbs(bdir) {
 			bdir = filepath.Join(root, filepath.FromSlash(bdir))
 		}
-		if stat, err := os.Lstat(bdir); err == nil {
-			if stat.Mode()&os.ModeSymlink != 0 {
-				// Case 1: The file exists and is a symlink, so we rebase the
-				// include patterns and the base directory
-				lnk, err := os.Readlink(bdir)
-				if err != nil {
-					continue
-				}
-				if filepath.IsAbs(lnk) {
-					bdir = lnk
-				} else {
-					bdir = filepath.Join(bdir, lnk)
-				}
-				if trailer != "" {
-					newincludes[i] = bdir + "/" + trailer
-				} else {
-					newincludes[i] = bdir
-				}
-			} else {
-				// Case 2: The file exists and is not a symlink, so we leave
-				// bdir unmodified.
-				bdir = enclosingDir(bdir)
-				if bdir == "" {
-					bdir = root
-				}
-			}
-		} else {
-			bdir = enclosingDir(bdir)
-			if bdir == "" {
-				bdir = root
-			}
-		}
+        if stat, err := os.Lstat(bdir); err == nil && stat.Mode()&os.ModeSymlink != 0 {
+            // The file exists and is a symlink, so we rebase the include
+            // patterns and the base directory
+            lnk, err := os.Readlink(bdir)
+            if err != nil {
+                continue
+            }
+            if filepath.IsAbs(lnk) {
+                bdir = lnk
+            } else {
+                bdir = filepath.Join(bdir, lnk)
+            }
+            if trailer != "" {
+                newincludes[i] = bdir + "/" + trailer
+            } else {
+                newincludes[i] = bdir
+            }
+        } else {
+            // Everything else: doesn't exist, or exists but isn't a symlink -
+            // same fallback either way.
+            bdir = enclosingDir(bdir)
+            if bdir == "" {
+                bdir = root
+            }
+        }
 		bases[i] = bdir
 	}
 	return newincludes, bases
