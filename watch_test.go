@@ -430,7 +430,7 @@ func _testWatch(
 	}
 	defer watcher.Stop()
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 		watcher.Stop()
 	}()
 
@@ -439,6 +439,7 @@ func _testWatch(
 	// a bit here, we sometimes don't receive notifications for the initial
 	// event.
 	go func() {
+	    time.Sleep(300 * time.Millisecond)
 		touch("a/initial")
 	}()
 	for {
