@@ -505,6 +505,8 @@ func Watch(
     }
     w.handle = cgo.NewHandle(w)
 
+    go w.batchLoop()
+
     ok := C.mw_session_start(
         session,
         (C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
@@ -516,7 +518,7 @@ func Watch(
         return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
     }
 
-    go w.batchLoop()
+
     return w, nil
 }
 
