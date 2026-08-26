@@ -35,10 +35,7 @@ func isUnder(parent string, child string) bool {
 	parent = filepath.ToSlash(parent)
 	child = filepath.ToSlash(child)
 	off := strings.Index(child, parent)
-	if off == 0 && (len(child) == len(parent) || child[len(parent)] == '/') {
-		return true
-	}
-	return false
+	return off == 0 && (len(child) == len(parent) || child[len(parent)] == '/')
 }
 
 func normPaths(root string, abspaths []string) ([]string, error) {
@@ -102,10 +99,7 @@ func (mod Mod) Has(p string) bool {
 
 // Empty checks if this mod set is empty
 func (mod Mod) Empty() bool {
-	if (len(mod.Changed) + len(mod.Deleted) + len(mod.Added)) > 0 {
-		return false
-	}
-	return true
+	return len(mod.Changed)+len(mod.Deleted)+len(mod.Added) == 0
 }
 
 func joinLists(a []string, b []string) []string {
@@ -314,12 +308,11 @@ func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, 
     var kind string
     switch {
     case created != 0:
-        if w.isKnown(cleanpath) {
-            kind = "changed"
-        } else {
-            kind = "added"
-            w.markKnown(cleanpath)
-        }
+    	kind = "changed"
+    	if !w.isKnown(cleanpath) {
+    		kind = "added"
+    		w.markKnown(cleanpath)
+    	}
     case updated != 0:
         kind = "changed"
         w.markKnown(cleanpath)
@@ -505,8 +498,6 @@ func Watch(
     }
     w.handle = cgo.NewHandle(w)
 
-    go w.batchLoop()
-
     ok := C.mw_session_start(
         session,
         (C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
@@ -518,7 +509,7 @@ func Watch(
         return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
     }
 
-
+    go w.batchLoop()
     return w, nil
 }
 
