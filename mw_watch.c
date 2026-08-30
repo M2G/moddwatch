@@ -102,6 +102,17 @@ mw_session *mw_session_create(
     return s;
 }
 
+/*
+ Fuite memoire connue, interne a libfswatch : sous
+ AddressSanitizer, fsw_start_monitor() alloue via "operator new" (C++)
+ de la memoire jamais liberee (~72 octets par session, observe de facon
+ reproductible). Confirme comme externe a notre code : identique avec
+ l'implementation C++ et l'implementation C de ce fichier. Sans impact
+ pratique pour un usage normal (une session par processus, duree de vie
+ du processus lui-meme) mais, fait apparaitre des faux positifs si on
+ active les sanitizers sur les tests de ce fichier a garder en tete
+ plutot qu'a chercher a "corriger" cote mw_watch.c.
+ */
 bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) {
     if (!s || s->thread_running || !cb) return false;
 
