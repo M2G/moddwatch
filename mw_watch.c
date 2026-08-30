@@ -117,7 +117,7 @@ bool mw_session_start(mw_session *s, mw_event_callback cb, uintptr_t user_data) 
 
     int guard = 0;
     while (!fsw_is_running(s->handle) && guard < 200000) {
-        sched_yield(); // @TODO err check
+        sched_yield();
         guard++;
     }
 
