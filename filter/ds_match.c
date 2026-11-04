@@ -268,7 +268,8 @@ static ds_result do_match_with_separator(
                }
           }
 
-          if (pat_idx >= pat_len && !ds_validate_pattern(pattern + pat_idx, pat_len - pat_idx, SEPARATOR)) return DS_BAD_PATTERN;
+          // No match: still report a malformed rest of the pattern.
+          if (pat_idx < pat_len && !ds_validate_pattern(pattern + pat_idx, pat_len - pat_idx, SEPARATOR)) return DS_BAD_PATTERN;
           return DS_NO_MATCH;
      }
 
