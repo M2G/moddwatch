@@ -92,10 +92,21 @@ long ds_index_next_alt(const char *s, size_t len, bool allow_escaping) {
         if (allow_escaping && s[i] == '\\') {
             i++;
         }
-        else if (allow_escaping && s[i] == '{') {
+        else if (s[i] == '[') {
+            /* skip the character class so commas within it aren't treated
+               as alternative separators */
+            for (i++; i < len; i++) {
+                if (allow_escaping && s[i] == '\\') {
+                    i++;
+                } else if (s[i] == ']') {
+                    break;
+                }
+            }
+        }
+        else if (s[i] == '{') {
             alts++;
         }
-        else if (allow_escaping && s[i] == '}') {
+        else if (s[i] == '}') {
             alts--;
         }
         else if (s[i] == ',' && alts == 1) {
