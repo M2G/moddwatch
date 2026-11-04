@@ -62,6 +62,17 @@ long ds_index_matched_closing_alt(const char *s, size_t len, bool allow_escaping
         if (allow_escaping && s[i] == '\\') {
             i++;
         }
+        else if (s[i] == '[') {
+            /* skip the character class so a '}' within it isn't mistaken for
+               the closing brace of the alternation */
+            for (i++; i < len; i++) {
+                if (allow_escaping && s[i] == '\\') {
+                    i++;
+                } else if (s[i] == ']') {
+                    break;
+                }
+            }
+        }
         else if (s[i] == '{') {
             alts++;
         }
