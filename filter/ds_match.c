@@ -103,16 +103,18 @@ static ds_result do_match_with_separator(
                     pat_idx++;
                     if (pat_idx < pat_len && pattern[pat_idx] == '*') {
                          pat_idx++;
+                         /* "**" is only a globstar as a whole path component;
+                            elsewhere it behaves like a single "*". */
                          if (start_of_segment) {
                               if (pat_idx >= pat_len) return DS_MATCH;
-                         }
-                         if (pattern[pat_idx] == SEPARATOR) {
-                              pat_idx++;
-                              doublestar_pattern_backtrack = (long)pat_idx;
-                              doublestar_name_backtrack = (long)name_idx;
-                              star_pattern_backtrack = -1;
-                              star_name_backtrack = -1;
-                              did_continue = true;
+                              if (pattern[pat_idx] == SEPARATOR) {
+                                   pat_idx++;
+                                   doublestar_pattern_backtrack = (long)pat_idx;
+                                   doublestar_name_backtrack = (long)name_idx;
+                                   star_pattern_backtrack = -1;
+                                   star_name_backtrack = -1;
+                                   did_continue = true;
+                              }
                          }
                     }
                     if (!did_continue) {
