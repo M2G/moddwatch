@@ -194,31 +194,31 @@ func baseDirs(root string, includePatterns []string) ([]string, []string) {
 		if !filepath.IsAbs(bdir) {
 			bdir = filepath.Join(root, filepath.FromSlash(bdir))
 		}
-        if stat, err := os.Lstat(bdir); err == nil && stat.Mode()&os.ModeSymlink != 0 {
-            // The file exists and is a symlink, so we rebase the include
-            // patterns and the base directory
-            lnk, err := os.Readlink(bdir)
-            if err != nil {
-                continue
-            }
-            if filepath.IsAbs(lnk) {
-                bdir = lnk
-            } else {
-                bdir = filepath.Join(bdir, lnk)
-            }
-            if trailer != "" {
-                newincludes[i] = bdir + "/" + trailer
-            } else {
-                newincludes[i] = bdir
-            }
-        } else {
-            // Everything else: doesn't exist, or exists but isn't a symlink -
-            // same fallback either way.
-            bdir = enclosingDir(bdir)
-            if bdir == "" {
-                bdir = root
-            }
-        }
+		if stat, err := os.Lstat(bdir); err == nil && stat.Mode()&os.ModeSymlink != 0 {
+			// The file exists and is a symlink, so we rebase the include
+			// patterns and the base directory
+			lnk, err := os.Readlink(bdir)
+			if err != nil {
+				continue
+			}
+			if filepath.IsAbs(lnk) {
+				bdir = lnk
+			} else {
+				bdir = filepath.Join(bdir, lnk)
+			}
+			if trailer != "" {
+				newincludes[i] = bdir + "/" + trailer
+			} else {
+				newincludes[i] = bdir
+			}
+		} else {
+			// Everything else: doesn't exist, or exists but isn't a symlink -
+			// same fallback either way.
+			bdir = enclosingDir(bdir)
+			if bdir == "" {
+				bdir = root
+			}
+		}
 		bases[i] = bdir
 	}
 	return newincludes, bases
@@ -297,45 +297,45 @@ func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, 
 	if !ok {
 		return
 	}
-    path := C.GoString(cpath)
-    abspath := filepath.Join(w.root, path)
+	path := C.GoString(cpath)
+	abspath := filepath.Join(w.root, path)
 
-    cleanpath, err := filter.File(path, w.includes, w.excludes)
-    if err != nil || cleanpath == "" {
-        return
-    }
+	cleanpath, err := filter.File(path, w.includes, w.excludes)
+	if err != nil || cleanpath == "" {
+		return
+	}
 
-    var kind string
-    switch {
-    case created != 0:
-    	kind = "changed"
-    	if !w.isKnown(cleanpath) {
-    		kind = "added"
-    		w.markKnown(cleanpath)
-    	}
-    case updated != 0:
-        kind = "changed"
-        w.markKnown(cleanpath)
-    case removed != 0:
-        kind = "deleted"
-        w.markUnknown(cleanpath)
-    case renamed != 0:
-        if _, err := os.Stat(abspath); err == nil {
-            kind = "added"
-            w.markKnown(cleanpath)
-        } else {
-            kind = "deleted"
-            w.markUnknown(cleanpath)
-        }
-    default:
-        return
-    }
+	var kind string
+	switch {
+	case created != 0:
+		kind = "changed"
+		if !w.isKnown(cleanpath) {
+			kind = "added"
+			w.markKnown(cleanpath)
+		}
+	case updated != 0:
+		kind = "changed"
+		w.markKnown(cleanpath)
+	case removed != 0:
+		kind = "deleted"
+		w.markUnknown(cleanpath)
+	case renamed != 0:
+		if _, err := os.Stat(abspath); err == nil {
+			kind = "added"
+			w.markKnown(cleanpath)
+		} else {
+			kind = "deleted"
+			w.markUnknown(cleanpath)
+		}
+	default:
+		return
+	}
 
-    w.Lock()
-    if !w.closed {
-        w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: abspath}
-    }
-    w.Unlock()
+	w.Lock()
+	if !w.closed {
+		w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: abspath}
+	}
+	w.Unlock()
 }
 
 func pathExists(p string) bool {
@@ -445,20 +445,22 @@ func (w *Watcher) batchLoop() {
 // the returned path is absolute.
 //
 // Pattern syntax is as follows:
-//   *              any sequence of non-path-separators
-//   **             any sequence of characters, including path separators
-//   ?              any single non-path-separator character
-//   [class]        any single non-path-separator character against a class
-//                  of characters (see below)
-//   {alt1,...}     a sequence of characters if one of the comma-separated
-//                  alternatives matches
 //
-//  Any character with a special meaning can be escaped with a backslash (\).
+//   - any sequence of non-path-separators
+//     **             any sequence of characters, including path separators
+//     ?              any single non-path-separator character
+//     [class]        any single non-path-separator character against a class
+//     of characters (see below)
+//     {alt1,...}     a sequence of characters if one of the comma-separated
+//     alternatives matches
+//
+//     Any character with a special meaning can be escaped with a backslash (\).
 //
 // Character classes support the following:
-// 		[abc]		any single character within the set
-// 		[a-z]		any single character in the range
-// 		[^class] 	any single character which does not match the class
+//
+//	[abc]		any single character within the set
+//	[a-z]		any single character in the range
+//	[^class] 	any single character which does not match the class
 func Watch(
 	root string,
 	includes []string,
@@ -486,31 +488,31 @@ func Watch(
 		return nil, fmt.Errorf("could not create fswatch session for root '%s'", root)
 	}
 
-    w := &Watcher{
-        session:  session,
-        modch:    ch,
-        rawch:    make(chan rawEvent, 4096),
-        includes: newincludes,
-        excludes: excludes,
-        known:    known,
-        lullTime: lullTime,
-        root:     root,
-    }
-    w.handle = cgo.NewHandle(w)
+	w := &Watcher{
+		session:  session,
+		modch:    ch,
+		rawch:    make(chan rawEvent, 4096),
+		includes: newincludes,
+		excludes: excludes,
+		known:    known,
+		lullTime: lullTime,
+		root:     root,
+	}
+	w.handle = cgo.NewHandle(w)
 
-    ok := C.mw_session_start(
-        session,
-        (C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
-        C.uintptr_t(w.handle),
-    )
-    if !bool(ok) {
-        w.handle.Delete()
-        C.mw_session_destroy(session)
-        return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
-    }
+	ok := C.mw_session_start(
+		session,
+		(C.mw_event_callback)(unsafe.Pointer(C.mw_go_bridge)),
+		C.uintptr_t(w.handle),
+	)
+	if !bool(ok) {
+		w.handle.Delete()
+		C.mw_session_destroy(session)
+		return nil, fmt.Errorf("could not start fswatch monitor for root '%s'", root)
+	}
 
-    go w.batchLoop()
-    return w, nil
+	go w.batchLoop()
+	return w, nil
 }
 
 // List all files under the root that match the specified patterns. The file
