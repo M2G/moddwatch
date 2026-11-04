@@ -90,7 +90,10 @@ static ds_result do_match_with_separator(
      size_t pat_idx,
      size_t name_idx
      ) {
-     bool start_of_segment = true;
+     /* This function is re-entered in the middle of a pattern after an
+        alternative has been substituted, so compute the state from the
+        previous byte instead of assuming a segment start. */
+     bool start_of_segment = (pat_idx == 0 || pattern[pat_idx - 1] == SEPARATOR);
 
      while (name_idx < name_len) {
           bool did_continue = false;
