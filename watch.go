@@ -188,7 +188,7 @@ func enclosingDir(path string) string {
 func baseDirs(root string, includePatterns []string) ([]string, []string) {
 	root = filepath.FromSlash(root)
 	bases := make([]string, len(includePatterns))
-	newincludes := includePatterns[:]
+	newincludes := slices.Clone(includePatterns)
 	for i, v := range includePatterns {
 		bdir, trailer := filter.SplitPattern(v)
 		if !filepath.IsAbs(bdir) {
