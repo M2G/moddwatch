@@ -41,7 +41,7 @@ static char *build_substituted_pattern(
 }
 
 static ds_result is_zero_length_pattern(const char *pattern, size_t len) {
-     if (len == 0) return true;
+     if (len == 0) return DS_MATCH;
      if (len == 1 && pattern[0] == '*') return DS_MATCH;
      if (len == 2 && pattern[0] == '*' && pattern[1] == '*') return DS_MATCH;
      if (len == 3 && pattern[0] == SEPARATOR && pattern[1] == '*' && pattern[2] == '*') return DS_MATCH;
