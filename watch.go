@@ -236,14 +236,16 @@ type Watcher struct {
 	handle   cgo.Handle
 	modch    chan *Mod
 	rawch    chan rawEvent
-	closed   bool
+	done     chan struct{} // closed by Stop: unblocks every send
+	loopDone chan struct{} // closed once batchLoop has exited and closed modch
+	stopOnce sync.Once
 	includes []string
 	excludes []string
 	known    map[string]bool
 	lullTime time.Duration
 	root     string
 
-	sync.Mutex
+	sync.Mutex // protège known
 }
 
 func (w *Watcher) isKnown(p string) bool {
@@ -265,29 +267,25 @@ func (w *Watcher) markUnknown(p string) {
 }
 
 func (w *Watcher) send(m *Mod) {
-	w.Lock()
-	defer w.Unlock()
-	if !w.closed {
-		w.modch <- m
+	select {
+	case w.modch <- m:
+	case <-w.done:
 	}
 }
 
 // Stop watching, and close the channel passed to watch. This function can
 // safely be called concurrently.
 func (w *Watcher) Stop() {
-	w.Lock()
-	if w.closed {
-		w.Unlock()
-		return
-	}
-	w.closed = true
-	w.Unlock()
+	w.stopOnce.Do(func() {
+		// Unblock the fswatch callback and batchLoop if they are stuck sending.
+		close(w.done)
 
-	C.mw_session_stop(w.session)
-	C.mw_session_destroy(w.session)
-	w.handle.Delete()
-	close(w.rawch)
-	close(w.modch)
+		C.mw_session_stop(w.session) // joins the monitor thread: no more callbacks after this
+		C.mw_session_destroy(w.session)
+		w.handle.Delete()
+
+		<-w.loopDone // batchLoop has exited and closed modch
+	})
 }
 
 //export goEventTrampoline
@@ -331,11 +329,10 @@ func goEventTrampoline(cpath *C.char, created, updated, removed, renamed C.int, 
 		return
 	}
 
-	w.Lock()
-	if !w.closed {
-		w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: abspath}
+	select {
+	case w.rawch <- rawEvent{kind: kind, cleanpath: cleanpath, abspath: abspath}:
+	case <-w.done:
 	}
-	w.Unlock()
 }
 
 func pathExists(p string) bool {
@@ -388,27 +385,44 @@ func resolveBatch(added, removed, changed map[string]string) Mod {
 // modch. This mirrors the batching behaviour of the original notify-based
 // implementation, adapted to fswatch's per-event CGo callback delivery.
 func (w *Watcher) batchLoop() {
+	defer close(w.loopDone)
+	defer close(w.modch)
+
 	added := make(map[string]string)
 	removed := make(map[string]string)
 	changed := make(map[string]string)
-	hadLullMod := false
+	pending := false
+
+	// lull fires lullTime after the last event; maxWait fires MaxLullWait
+	// after the first event of the batch.
+	lull := time.NewTimer(w.lullTime)
+	lull.Stop()
+	maxWait := time.NewTimer(MaxLullWait)
+	maxWait.Stop()
 
 	flush := func() {
-		if m := resolveBatch(added, removed, changed); !m.Empty() {
-			w.send(&m)
-		}
+		lull.Stop()
+		maxWait.Stop()
+		pending = false
+		m := resolveBatch(added, removed, changed)
 		added = make(map[string]string)
 		removed = make(map[string]string)
 		changed = make(map[string]string)
+		if !m.Empty() {
+			w.send(&m)
+		}
 	}
 
 	for {
 		select {
-		case evt, more := <-w.rawch:
-			if !more {
-				return
+		case <-w.done:
+			return
+		case evt := <-w.rawch:
+			if !pending {
+				pending = true
+				maxWait.Reset(MaxLullWait)
 			}
-			hadLullMod = true
+			lull.Reset(w.lullTime)
 			switch evt.kind {
 			case "added":
 				added[evt.cleanpath] = evt.abspath
@@ -417,13 +431,9 @@ func (w *Watcher) batchLoop() {
 			case "deleted":
 				removed[evt.cleanpath] = evt.abspath
 			}
-		case <-time.After(w.lullTime):
-			if !hadLullMod {
-				flush()
-				continue
-			}
-			hadLullMod = false
-		case <-time.After(MaxLullWait):
+		case <-lull.C:
+			flush()
+		case <-maxWait.C:
 			flush()
 		}
 	}
@@ -492,6 +502,8 @@ func Watch(
 		session:  session,
 		modch:    ch,
 		rawch:    make(chan rawEvent, 4096),
+		done:     make(chan struct{}),
+		loopDone: make(chan struct{}),
 		includes: newincludes,
 		excludes: excludes,
 		known:    known,
