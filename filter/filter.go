@@ -2,7 +2,6 @@ package filter
 
 /*
 #include "ds_match.h"
-#include <stdlib.h>
 */
 import "C"
 
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"unsafe"
 )
+
 // dsMatch calls the C glob engine (ds_match.c), equivalent to
 // doublestar.Match(pattern, path) replaces the
 // ‘github.com/bmatcuk/doublestar/v4’ import from the original filter.go.
@@ -21,15 +21,11 @@ func MatchAny(path string, patterns []string) (bool, error) {
 		return false, nil
 	}
 
-	cPath := C.CString(filepath.ToSlash(path))
-	defer C.free(unsafe.Pointer(cPath))
+	path = filepath.ToSlash(path)
+	cPath, pathLen := cstr(path), C.size_t(len(path))
 
 	for _, pattern := range patterns {
-		cPattern := C.CString(pattern)
-		result := C.ds_match(cPattern, cPath)
-		C.free(unsafe.Pointer(cPattern))
-
-		switch result {
+		switch C.ds_match_n(cstr(pattern), C.size_t(len(pattern)), cPath, pathLen) {
 		case C.DS_MATCH:
 			return true, nil
 		case C.DS_BAD_PATTERN:
@@ -37,6 +33,20 @@ func MatchAny(path string, patterns []string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// emptyBytes backs the pointer given to C for an empty string:
+// unsafe.StringData("") may be nil, and C must never receive NULL.
+var emptyBytes [1]byte
+
+// cstr returns a pointer to the bytes of s, without copying them. s is not
+// NUL-terminated: the C side is given the length and reads at most len(s)
+// bytes, and it does not keep the pointer after the call.
+func cstr(s string) *C.char {
+	if len(s) == 0 {
+		return (*C.char)(unsafe.Pointer(&emptyBytes[0]))
+	}
+	return (*C.char)(unsafe.Pointer(unsafe.StringData(s)))
 }
 
 // File determines if a path matches a set of include and exclude patterns. At
