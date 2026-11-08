@@ -2,6 +2,7 @@
 #define DS_MATCH_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef enum {
     DS_NO_MATCH   = 0,
