@@ -28,6 +28,17 @@ import (
 // we've had a constant stream of modifications blocking us.
 const MaxLullWait = time.Second * 8
 
+// matchPath returns p relative to root when it lies under root, and p
+// unchanged otherwise. Patterns are written relative to the root, so they must
+// be matched against that form.
+func matchPath(root, p string) string {
+	rel, err := filepath.Rel(root, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return p
+	}
+	return rel
+}
+
 // isUnder takes two absolute paths, and returns true if child is under parent.
 func isUnder(parent string, child string) bool {
 	parent = filepath.ToSlash(parent)
@@ -549,17 +560,19 @@ func List(root string, includePatterns []string, excludePatterns []string) ([]st
 				if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 					return nil
 				}
-				cleanpath, err := filter.File(p, newincludes, excludePatterns)
+				// Patterns are relative to the root, so match on that form.
+				mp := matchPath(root, p)
+				cleanpath, err := filter.File(mp, newincludes, excludePatterns)
 				if err != nil {
 					return nil
 				}
 				if d.IsDir() {
-					m, err := filter.MatchAny(p, excludePatterns)
+					m, err := filter.MatchAny(mp, excludePatterns)
 					if err != nil && !m {
 						return filepath.SkipDir
 					}
 				} else if cleanpath != "" {
-					ret = append(ret, cleanpath)
+					ret = append(ret, p)
 				}
 				return nil
 			},
