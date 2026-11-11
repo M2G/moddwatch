@@ -1,10 +1,8 @@
 package moddwatch
 
 /*
-#cgo darwin CFLAGS: -I/opt/homebrew/include -I/usr/local/include
-#cgo darwin LDFLAGS: -L/opt/homebrew/lib -L/usr/local/lib -lfswatch -lpthread
-#cgo linux CFLAGS: -I/usr/local/include
-#cgo linux LDFLAGS: -L/usr/lib/x86_64-linux-gnu/libfswatch -L/usr/local/lib -lfswatch -lpthread -Wl,-rpath,/usr/lib/x86_64-linux-gnu/libfswatch -Wl,-rpath,/usr/local/lib
+#cgo darwin pkg-config: libfswatch
+#cgo linux LDFLAGS: -lfswatch
 #include "mw_watch.h"
 #include "cshim.h"
 #include <stdlib.h>
