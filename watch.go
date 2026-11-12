@@ -28,6 +28,17 @@ import (
 // we've had a constant stream of modifications blocking us.
 const MaxLullWait = time.Second * 8
 
+// subtreeExcluded reports whether everything below dir is excluded, so that the
+// directory need not be walked. A pattern such as "**/node_modules/**" matches
+// any path under the directory, whereas one such as "**.bak" only matches the
+// directory's own name and must not prune its contents.
+func subtreeExcluded(dir string, excludePatterns []string) bool {
+	const probe = "moddwatch-probe"
+	deep := filepath.ToSlash(filepath.Join(dir, probe, probe))
+	m, err := filter.MatchAny(deep, excludePatterns)
+	return err == nil && m
+}
+
 // matchPath returns p relative to root when it lies under root, and p
 // unchanged otherwise. Patterns are written relative to the root, so they must
 // be matched against that form.
@@ -567,8 +578,7 @@ func List(root string, includePatterns []string, excludePatterns []string) ([]st
 					return nil
 				}
 				if d.IsDir() {
-					m, err := filter.MatchAny(mp, excludePatterns)
-					if err != nil && !m {
+					if subtreeExcluded(mp, excludePatterns) {
 						return filepath.SkipDir
 					}
 				} else if cleanpath != "" {
